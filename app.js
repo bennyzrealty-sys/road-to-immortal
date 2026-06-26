@@ -686,10 +686,11 @@
       if (!appEl.querySelector('#p-timeline')) return; // navigated away
       if (!ps.length) { host.innerHTML = '<h3>Journey</h3><p class="faint tiny">No photos yet. Capture your day-1 baseline.</p>'; return; }
       var type = state._photoType || 'face', ofType = ps.filter(function (p) { return p.type === type; });
-      var recent = ps.slice(-12);
+      var recent = ofType.slice(-12); // strip shows only the selected pose — matches the heading, compare & trend
       var thumbs = recent.map(function (p) { return '<img class="pthumb" data-pid="' + p.id + '" title="' + p.date + '">'; }).join('');
-      var cmp = ofType.length >= 2 ? '<div id="p-compare"></div>' : '<p class="faint tiny">Need 2 ' + type + ' photos for a before/after.</p>';
-      host.innerHTML = '<h3>Journey · ' + type + '</h3><div style="overflow-x:auto;white-space:nowrap;padding-bottom:6px">' + thumbs + '</div>' +
+      var cmp = ofType.length >= 2 ? '<div id="p-compare"></div>'
+        : '<p class="faint tiny">' + (ofType.length === 0 ? 'No ' + type + ' photos yet — capture a baseline.' : '1 ' + type + ' photo so far — capture 1 more for a before/after.') + '</p>';
+      host.innerHTML = '<h3>Journey · ' + type + ' (' + ofType.length + ')</h3><div style="overflow-x:auto;white-space:nowrap;padding-bottom:6px">' + thumbs + '</div>' +
         '<div class="divider"></div><div class="tiny muted">Before / after — drag to wipe</div>' + cmp +
         '<div class="divider"></div><div class="tiny muted">' + (type === 'face' ? 'Jaw ratio' : 'Shoulder ÷ hip') + ' vs cardio (per interval)</div>' + photoTrendChart(ofType, type) +
         '<div class="tiny faint" style="margin-top:6px">' + (type !== 'face' ? 'Body ratios are lower-confidence than face metrics.' : 'Lower jaw ratio = more tapered. Trust weekly shapes, not single frames.') + '</div>';
