@@ -7,7 +7,8 @@
    localStorage, never fetched).
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v3';
+var CACHE = 'rti-shell-v4';
+// core app shell — small, MUST install successfully
 var SHELL = [
   './',
   './index.html',
@@ -16,6 +17,7 @@ var SHELL = [
   './util.js',
   './store.js',
   './engine.js',
+  './photos.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',
@@ -25,10 +27,24 @@ var SHELL = [
   './icons/apple-touch-icon.png',
   './icons/favicon-32.png'
 ];
+// heavy MediaPipe assets (vendored, offline) — precached BEST-EFFORT so a slow
+// network can't fail the whole install. The cache-first fetch handler below
+// also caches them on first use, so the photo module works offline either way.
+// (no-SIMD wasm is vendored too but cached on demand — modern phones use SIMD.)
+var MP = [
+  './vendor/mediapipe/vision_bundle.mjs',
+  './vendor/mediapipe/wasm/vision_wasm_internal.js',
+  './vendor/mediapipe/wasm/vision_wasm_internal.wasm',
+  './vendor/mediapipe/face_landmarker.task',
+  './vendor/mediapipe/pose_landmarker_lite.task',
+  './vendor/mediapipe/selfie_segmenter.tflite'
+];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
-    caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); })
+    caches.open(CACHE)
+      .then(function (c) { return c.addAll(SHELL).then(function () { return c.addAll(MP).catch(function (err) { console.warn('[RTI] MediaPipe precache deferred to first use:', err); }); }); })
+      .then(function () { return self.skipWaiting(); })
   );
 });
 

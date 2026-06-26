@@ -13,12 +13,12 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
 
-var S = global.RTI_STORE, E = global.RTI_ENGINE, U = global.RTI_UTIL;
+var S = global.RTI_STORE, E = global.RTI_ENGINE, U = global.RTI_UTIL, P = global.RTI_PHOTO;
 var pass = 0, fail = 0;
 function check(name, got, want) {
   var ok = JSON.stringify(got) === JSON.stringify(want);
@@ -161,6 +161,42 @@ check('correlation locked before day 60', lock30.unlocked, false);
 check('spearman monotonic == 1', Math.round(U.spearman([1, 2, 3, 4, 5, 6], [2, 4, 6, 8, 10, 12])), 1);
 check('spearman inverse == -1', Math.round(U.spearman([1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1])), -1);
 check('spearman <5 pairs -> null', U.spearman([1, 2, 3], [1, 2, 3]), null);
+
+// ---- increment 2 · Part 2: photo metric VALIDITY (scale-invariance) ----
+function mkFace(scale, ox, oy) {
+  scale = scale || 1; ox = ox || 0; oy = oy || 0;
+  var lm = []; for (var i = 0; i < 478; i++) lm.push({ x: 0, y: 0 });
+  function set(i, x, y) { lm[i] = { x: x * scale + ox, y: y * scale + oy }; }
+  set(468, 45, 40); set(473, 55, 40);   // iris L/R -> inter-ocular 10
+  set(234, 30, 42); set(454, 70, 42);   // bizygomatic 40
+  set(172, 36, 60); set(397, 64, 60);   // bigonial 28
+  set(0, 50, 55); set(168, 50, 38);     // upper lip & glabella -> height 17
+  set(152, 50, 72); set(10, 50, 20);    // chin & forehead
+  set(50, 40, 50); set(280, 60, 50);    // cheeks 20
+  set(1, 50, 50); set(33, 40, 40); set(263, 60, 40); // nose + eye corners
+  return lm;
+}
+var fm1 = P.faceMetrics(mkFace(1)), fm2 = P.faceMetrics(mkFace(2)); // 2x = camera closer
+check('jawRatio scale-invariant (closer != wider jaw)', Math.abs(fm1.jawRatio - fm2.jawRatio) < 1e-9, true);
+check('fWHR scale-invariant', Math.abs(fm1.fWHR - fm2.fWHR) < 1e-9, true);
+check('gonialAngle scale-invariant', Math.abs(fm1.gonialAngleDeg - fm2.gonialAngleDeg) < 1e-9, true);
+check('cheekFullness scale-invariant', Math.abs(fm1.cheekFullness - fm2.cheekFullness) < 1e-9, true);
+check('jawRatio value (28/40)', +fm1.jawRatio.toFixed(2), 0.70);
+check('fWHR value (40/17)', +fm1.fWHR.toFixed(2), 2.35);
+function mkPose(scale) {
+  var p = []; for (var i = 0; i < 33; i++) p.push({ x: 0, y: 0 });
+  p[11] = { x: 30 * scale, y: 20 * scale }; p[12] = { x: 70 * scale, y: 20 * scale }; // shoulders 40
+  p[23] = { x: 38 * scale, y: 60 * scale }; p[24] = { x: 62 * scale, y: 60 * scale }; // hips 24
+  return p;
+}
+var bm1 = P.bodyMetrics(mkPose(1)), bm2 = P.bodyMetrics(mkPose(2));
+check('shoulderHip scale-invariant', Math.abs(bm1.shoulderHip - bm2.shoulderHip) < 1e-9, true);
+check('shoulderHip value (40/24)', +bm1.shoulderHip.toFixed(3), 1.667);
+// verdict: weekly cadence gate labels sub-week as noise
+var vNoise = P.verdict({ jawRatio: 0.7, cheekFullness: 0.5 }, { jawRatio: 0.66, cheekFullness: 0.48 }, null, { cardioMin: 200 }, 3, 'face');
+check('sub-week capture labelled noise (info)', vNoise.tone, 'info');
+var vWeek = P.verdict({ jawRatio: 0.7, cheekFullness: 0.5 }, { jawRatio: 0.66, cheekFullness: 0.48 }, null, { cardioMin: 200 }, 14, 'face');
+check('weekly sharper+cardio -> amber read', vWeek.tone, 'amber');
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

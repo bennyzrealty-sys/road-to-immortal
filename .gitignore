@@ -16,3 +16,4 @@ npm-debug.log*
 
 # Local backups exported from the app (keep your data out of git)
 road-to-immortal-backup-*.json
+road-to-immortal-photos-*.json

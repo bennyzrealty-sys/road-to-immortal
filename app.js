@@ -381,7 +381,7 @@
       '</div></div>' +
       '<div class="card"><div class="codex-quote" style="font-size:17px">' + esc(fill(dailyPick(CFG.quotes.daily), snap)) + '</div></div>' +
       '<div class="btn-grid"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
-      '<button class="btn ghost full" data-go="ascension" style="margin-top:10px">🌌 Ascension — Energy Bank</button>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
 
@@ -635,6 +635,189 @@
     countUp(appEl.querySelector('#chi-total'), cs.total);
     appEl.querySelectorAll('[data-asc]').forEach(function (b) { b.onclick = function () { state._ascChi = b.getAttribute('data-asc'); render(); }; });
     var ah = appEl.querySelector('#asc-hc'); if (ah) ah.onclick = function () { state._ascHC = !state._ascHC; render(); };
+  }
+
+  /* ---- PHOTOS (increment 2, Module A) ---- */
+  function numOrNull(el) { return (el && el.value !== '') ? +el.value : null; }
+  function intervalSummary(fromDate, toDate) {
+    var workouts = 0, cardioMin = 0, adhSum = 0, adhN = 0, fatFrom = null, fatTo = null, days = 0, d = fromDate;
+    while (d <= toDate && days < 400) {
+      var lg = S.getLog(d);
+      if (lg.workout) workouts++;
+      if (lg.cardio && lg.cardio.minutes) cardioMin += (+lg.cardio.minutes || 0);
+      var a = E.nutritionAdherence(lg); if (a.chosen) { adhSum += a.adherence; adhN++; }
+      if (lg.fatPct != null) { if (fatFrom == null) fatFrom = lg.fatPct; fatTo = lg.fatPct; }
+      days++; d = U.addDays(d, 1);
+    }
+    var fatTrend = null;
+    if (fatFrom != null && fatTo != null) fatTrend = (fatTo < fatFrom - 0.2) ? 'down' : (fatTo > fatFrom + 0.2) ? 'up' : 'flat';
+    return { workouts: workouts, cardioMin: cardioMin, adherencePct: adhN ? Math.round(adhSum / adhN * 100) : null, fatTrend: fatTrend, days: days };
+  }
+  function screenPhotos() {
+    var type = state._photoType || 'face';
+    var html = '<div class="screen">' + header('Photos') +
+      '<div class="card"><div class="flag info" style="margin:0">📸 Weekly, same light, same distance. Metrics are <b>ratios</b> (size-independent). Faces shift daily — a real read needs ~' + CFG.photos.weeklyDays + ' days between shots.</div></div>' +
+      '<div class="card"><h3>Capture</h3>' +
+        '<div class="seg">' + ['face', 'body', 'side'].map(function (x) { return '<button data-pt="' + x + '" class="' + (type === x ? 'on' : '') + '">' + x + '</button>'; }).join('') + '</div>' +
+        '<label class="field" style="margin-top:10px"><span>Weight (kg, optional)</span><input type="number" inputmode="decimal" id="p-weight"></label>' +
+        '<label class="field"><span>Body fat % (optional)</span><input type="number" inputmode="decimal" id="p-fat"></label>' +
+        '<button class="btn gold full" id="p-open">Open camera</button>' +
+        '<div class="tiny faint" style="margin-top:6px">Camera needs HTTPS or localhost. Nothing is uploaded — photos stay on this device.</div>' +
+      '</div>' +
+      '<div class="card" id="p-timeline"><h3>Journey</h3><p class="faint tiny">Loading…</p></div>' +
+      '<div class="card"><h3>Backup</h3><div class="tiny muted" style="margin-bottom:8px">Photos export <b>separately</b> from your main backup so it stays light.</div>' +
+        '<div class="btn-grid"><button class="btn cyan" id="p-export">⤓ Export photo journey</button><button class="btn ghost" id="p-import">⤒ Import</button></div>' +
+        '<input type="file" id="p-importfile" accept="application/json,.json" style="display:none"></div>' +
+      '<details class="card"><summary class="muted">AI photo interpreter (coming later)</summary>' +
+        '<div class="tiny muted" style="margin-top:8px">A future <b>opt-in</b> module could send <b>one weekly photo + the numbers this device already computed</b> to a vision model that <i>explains</i> them in words. It would never measure — only narrate — and you could switch it off any week. <b>It is off now; nothing leaves your device.</b></div>' +
+        '<div class="check" style="opacity:.45;pointer-events:none;margin-top:8px"><span class="box"></span><span class="txt">Enable cloud interpreter (disabled)</span></div></details>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    appEl.querySelectorAll('[data-pt]').forEach(function (b) { b.onclick = function () { state._photoType = b.getAttribute('data-pt'); render(); }; });
+    appEl.querySelector('#p-open').onclick = function () { openCamera(state._photoType || 'face'); };
+    appEl.querySelector('#p-export').onclick = exportPhotos;
+    appEl.querySelector('#p-import').onclick = function () { appEl.querySelector('#p-importfile').click(); };
+    appEl.querySelector('#p-importfile').onchange = importPhotos;
+    fillPhotoTimeline();
+  }
+  function fillPhotoTimeline() {
+    var host = appEl.querySelector('#p-timeline'); if (!host) return;
+    RTI_PHOTO.all().then(function (ps) {
+      if (!appEl.querySelector('#p-timeline')) return; // navigated away
+      if (!ps.length) { host.innerHTML = '<h3>Journey</h3><p class="faint tiny">No photos yet. Capture your day-1 baseline.</p>'; return; }
+      var type = state._photoType || 'face', ofType = ps.filter(function (p) { return p.type === type; });
+      var recent = ps.slice(-12);
+      var thumbs = recent.map(function (p) { return '<img class="pthumb" data-pid="' + p.id + '" title="' + p.date + '">'; }).join('');
+      var cmp = ofType.length >= 2 ? '<div id="p-compare"></div>' : '<p class="faint tiny">Need 2 ' + type + ' photos for a before/after.</p>';
+      host.innerHTML = '<h3>Journey · ' + type + '</h3><div style="overflow-x:auto;white-space:nowrap;padding-bottom:6px">' + thumbs + '</div>' +
+        '<div class="divider"></div><div class="tiny muted">Before / after — drag to wipe</div>' + cmp +
+        '<div class="divider"></div><div class="tiny muted">' + (type === 'face' ? 'Jaw ratio' : 'Shoulder ÷ hip') + ' vs cardio (per interval)</div>' + photoTrendChart(ofType, type) +
+        '<div class="tiny faint" style="margin-top:6px">' + (type !== 'face' ? 'Body ratios are lower-confidence than face metrics.' : 'Lower jaw ratio = more tapered. Trust weekly shapes, not single frames.') + '</div>';
+      recent.forEach(function (p) { var img = host.querySelector('[data-pid="' + p.id + '"]'); if (img) img.src = URL.createObjectURL(p.blob); });
+      if (ofType.length >= 2) buildCompare(host.querySelector('#p-compare'), ofType[0], ofType[ofType.length - 1]);
+    }).catch(function (e) { host.innerHTML = '<h3>Journey</h3><p class="faint tiny">Photo store error: ' + esc(e.message) + '</p>'; });
+  }
+  function photoTrendChart(ofType, type) {
+    var key = type === 'face' ? 'jawRatio' : 'shoulderHip', rows = [], prevDate = null;
+    ofType.forEach(function (p) {
+      if (!p.metrics || p.metrics[key] == null) return;
+      var cardio = prevDate ? intervalSummary(prevDate, p.date).cardioMin : 0;
+      rows.push({ x: p.day, a: p.metrics[key], b: cardio }); prevDate = p.date;
+    });
+    return dualLineChart(rows, { label: (type === 'face' ? 'jaw ratio' : 'sh/hip'), color: '#62d8ff' }, { label: 'cardio min', color: '#d6af4e' });
+  }
+  function buildCompare(el, a, b) {
+    if (!el) return;
+    var ua = URL.createObjectURL(a.blob), ub = URL.createObjectURL(b.blob);
+    el.innerHTML = '<div class="cmp"><img src="' + ub + '"><img class="cmp-top" src="' + ua + '">' +
+      '<span class="cmp-lbl" style="left:8px">' + a.date + '</span><span class="cmp-lbl" style="right:8px">' + b.date + '</span>' +
+      '<input type="range" min="0" max="100" value="50" class="cmp-range"></div>';
+    var top = el.querySelector('.cmp-top'), rng = el.querySelector('.cmp-range');
+    rng.oninput = function () { top.style.clipPath = 'inset(0 ' + (100 - rng.value) + '% 0 0)'; };
+  }
+  function guideSVG(type) {
+    var shoulders = type === 'face' ? '' : '<line x1="18" y1="72" x2="82" y2="72" stroke="rgba(98,216,255,.6)" stroke-width="0.7"/>';
+    return '<svg id="cam-guide" viewBox="0 0 100 100" preserveAspectRatio="none">' +
+      '<ellipse cx="50" cy="' + (type === 'face' ? 42 : 28) + '" rx="' + (type === 'face' ? 22 : 14) + '" ry="' + (type === 'face' ? 28 : 18) + '" fill="none" stroke="rgba(214,175,78,.7)" stroke-width="0.7"/>' + shoulders + '</svg>';
+  }
+  function openCamera(type) {
+    RTI_PHOTO.all().then(function (ps) {
+      var prev = ps.filter(function (p) { return p.type === type; }).slice(-1)[0];
+      var facing = state._photoFacing || 'user';
+      var ov = h('<div class="overlay cam">' +
+        '<div class="day-num">CAPTURE · ' + type.toUpperCase() + '</div>' +
+        '<div class="cam-stage"><video id="cam-v" autoplay playsinline muted></video>' +
+        (prev ? '<img id="cam-ghost">' : '') + guideSVG(type) + '</div>' +
+        '<div id="cam-msg" class="tiny faint" style="min-height:34px;margin:8px 0;max-width:360px;text-align:center">Line up with the guide. Match your distance to the faint previous shot.</div>' +
+        '<div class="row" style="gap:10px"><button class="btn ghost sm" data-c="flip">⟲ Flip</button>' +
+        '<button class="btn gold" data-c="shoot">Capture</button>' +
+        '<button class="btn ghost sm" data-c="cancel">Cancel</button></div></div>');
+      document.body.appendChild(ov);
+      var video = ov.querySelector('#cam-v'), stream = null;
+      if (prev) ov.querySelector('#cam-ghost').src = URL.createObjectURL(prev.blob);
+      function start(f) {
+        if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { ov.querySelector('#cam-msg').textContent = 'This browser/context has no camera access (needs HTTPS or localhost).'; return; }
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: f, width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false })
+          .then(function (s) { stream = s; video.srcObject = s; })
+          .catch(function (e) { ov.querySelector('#cam-msg').textContent = 'Camera error: ' + e.message + '. Allow camera permission; needs HTTPS/localhost.'; });
+      }
+      start(facing);
+      function close() { if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); ov.remove(); }
+      ov._cleanup = close;
+      ov.querySelector('[data-c=cancel]').onclick = close;
+      ov.querySelector('[data-c=flip]').onclick = function () { facing = facing === 'user' ? 'environment' : 'user'; state._photoFacing = facing; start(facing); };
+      ov.querySelector('[data-c=shoot]').onclick = function () { captureFrom(video, type, prev, stream, ov); };
+    });
+  }
+  function captureFrom(video, type, prev, stream, ov) {
+    var msg = ov.querySelector('#cam-msg');
+    if (!video.videoWidth) { msg.textContent = 'Camera not ready yet — give it a second.'; return; }
+    msg.textContent = 'Measuring on-device…';
+    var cc = RTI_PHOTO.toCanvas(video, video.videoWidth, video.videoHeight);
+    var measure = type === 'face' ? RTI_PHOTO.measureFace(cc.canvas, cc.w, cc.h) : RTI_PHOTO.measureBody(cc.canvas, cc.w, cc.h);
+    measure.then(function (res) {
+      if (res.error) { msg.textContent = res.error; return; }
+      if (type === 'face' && res.quality && !res.quality.ok) { msg.innerHTML = '↻ Re-shoot — ' + esc(res.quality.reasons.join(' · ')); return; }
+      RTI_PHOTO.canvasToBlob(cc.canvas).then(function (blob) {
+        var d = today(), snap = E.snapshot(d);
+        var rec = { date: d, day: snap.day, type: type, blob: blob, w: cc.w, h: cc.h,
+          weightKg: numOrNull(appEl.querySelector('#p-weight')), fatPct: numOrNull(appEl.querySelector('#p-fat')),
+          metrics: res.metrics, quality: res.quality || null, waistConfident: res.waistConfident || false, createdAt: Date.now() };
+        RTI_PHOTO.add(rec).then(function () {
+          if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+          ov.remove();
+          if (rec.fatPct != null) S.patchLog(d, { fatPct: rec.fatPct }); // so cross-checks see it
+          showPhotoVerdict(type, rec);
+        });
+      });
+    }).catch(function (e) { msg.textContent = 'Measure failed: ' + e.message; });
+  }
+  function showPhotoVerdict(type, rec) {
+    RTI_PHOTO.all().then(function (ps) {
+      var ofType = ps.filter(function (p) { return p.type === type; });
+      var base = ofType[0] ? ofType[0].metrics : null;
+      var prevRec = ofType.length >= 2 ? ofType[ofType.length - 2] : null;
+      var daysApart = prevRec ? U.daysBetween(prevRec.date, rec.date) : 0;
+      var summary = prevRec ? intervalSummary(prevRec.date, rec.date) : intervalSummary(rec.date, rec.date);
+      var v = RTI_PHOTO.verdict(prevRec ? prevRec.metrics : null, rec.metrics, base, summary, daysApart, type);
+      var ov = h('<div class="overlay"><div class="day-num" style="color:var(--good)">CAPTURED · MEASURED ON-DEVICE</div>' +
+        '<div class="flag ' + (v.tone === 'amber' ? 'amber' : 'info') + '" style="max-width:360px">' + esc(v.text) + '</div>' +
+        metricReadout(type, rec.metrics, prevRec ? prevRec.metrics : null) +
+        '<button class="btn gold" data-x="ok">Good</button></div>');
+      ov.querySelector('[data-x=ok]').onclick = function () { ov.remove(); render(); };
+      document.body.appendChild(ov);
+    });
+  }
+  function metricReadout(type, m, prev) {
+    function f(v) { return Math.abs(v) < 10 ? v.toFixed(3) : v.toFixed(1); }
+    function row(lbl, v, pv) {
+      var ds = (pv != null && v != null) ? ' <span class="tiny faint">(' + ((v - pv) >= 0 ? '+' : '') + f(v - pv) + ')</span>' : '';
+      return '<tr><td class="muted">' + lbl + '</td><td style="text-align:right"><b>' + f(v) + '</b>' + ds + '</td></tr>';
+    }
+    var rows;
+    if (type === 'face') rows = row('Jaw ratio', m.jawRatio, prev && prev.jawRatio) + row('fWHR', m.fWHR, prev && prev.fWHR) + row('Gonial angle°', m.gonialAngleDeg, prev && prev.gonialAngleDeg) + row('Cheek fullness', m.cheekFullness, prev && prev.cheekFullness);
+    else rows = row('Shoulder ÷ hip', m.shoulderHip, prev && prev.shoulderHip) + (m.shoulderWaist != null ? row('Shoulder ÷ waist *', m.shoulderWaist, prev && prev.shoulderWaist) : '');
+    return '<table style="width:min(360px,86vw);font-size:13px;margin:6px 0">' + rows + '</table>' + (type !== 'face' ? '<div class="tiny faint">* waist is a lower-confidence estimate</div>' : '');
+  }
+  function exportPhotos() {
+    RTI_PHOTO.exportJourney().then(function (data) {
+      var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = 'road-to-immortal-photos-' + today() + '.json';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      toast('Photo journey exported.');
+    });
+  }
+  function importPhotos(e) {
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      var obj; try { obj = JSON.parse(r.result); } catch (err) { alert('That file is not valid JSON.'); return; }
+      if (!confirm('Import this photo journey? Photos are ADDED to what you already have.')) return;
+      RTI_PHOTO.importJourney(obj).then(function (res) { if (res.ok) { toast('Imported ' + res.count + ' photos.'); render(); } else alert(res.error); });
+    };
+    r.readAsText(f);
   }
 
   /* ---- STUDY (section 6) ---- */
@@ -971,7 +1154,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
