@@ -7,7 +7,7 @@
    localStorage, never fetched).
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v2';
+var CACHE = 'rti-shell-v3';
 var SHELL = [
   './',
   './index.html',

@@ -233,6 +233,32 @@
     /* ---- Backup reminder cadence ---- */
     backup: { remindEveryDays: 7 },
 
+    /* ---- Ascension / Energy Bank (increment 2) ----
+       Correlation between Chi and outcomes stays LOCKED until there is
+       enough real data to mean anything. All thresholds tunable. */
+    ascension: {
+      correlationLock: { minDay: 60, minOppDays: 15, minSignalDays: 10 }
+    },
+
+    /* ---- Photo measurement module (increment 2, Module A) ---- */
+    photos: {
+      maxLongEdge: 1080,          // downscale captures to this before storing
+      jpegQuality: 0.8,
+      weeklyDays: 7,              // a real "trend" read needs photos >= this many days apart
+      frameGate: { maxYawDeg: 10, maxPitchDeg: 10, maxSmile: 0.25 }, // near-frontal, neutral
+      // vendored MediaPipe assets (offline; see /vendor/mediapipe)
+      mediapipe: {
+        wasmDir: './vendor/mediapipe/wasm',
+        bundle: './vendor/mediapipe/vision_bundle.mjs',
+        faceModel: './vendor/mediapipe/face_landmarker.task',
+        poseModel: './vendor/mediapipe/pose_landmarker_lite.task',
+        segModel: './vendor/mediapipe/selfie_segmenter.tflite'
+      }
+    },
+
+    /* ---- Module B (cloud AI interpreter) — OFF, spec-only placeholder ---- */
+    cloudInterpreter: { enabled: false },
+
     /* ================= QUOTES & CODEX =================
        ALL original / paraphrased. No copyrighted passages.
        {day},{streak},{rank},{next},{toNext},{index} are filled from

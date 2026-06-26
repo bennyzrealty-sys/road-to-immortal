@@ -84,6 +84,53 @@
       '<text x="' + pad + '" y="12" font-size="9" fill="#6a6f99">' + esc(opt.ylabel || '') + '</text>' +
       '<text x="' + (W - pad) + '" y="' + (H - 6) + '" font-size="9" fill="#6a6f99" text-anchor="end">' + esc(opt.xlabel || '') + '</text></svg>';
   }
+  // Two series over a shared x-axis, each normalized to ITS OWN range so the
+  // shapes can be read side by side (values labelled, not the axis).
+  function dualLineChart(rows, aOpt, bOpt) {
+    var W = 320, H = 144, pad = 22;
+    var xs = rows.map(function (r) { return r.x; });
+    if (xs.length < 2) return '<p class="faint tiny">Not enough data yet — keep logging.</p>';
+    var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+    function norm(key) {
+      var v = rows.map(function (r) { return r[key]; }).filter(function (x) { return x != null && !isNaN(x); });
+      if (!v.length) return null;
+      var mn = Math.min.apply(null, v), mx = Math.max.apply(null, v);
+      return { mn: mn, mx: mx, range: (mx - mn) || 1 };
+    }
+    function px(x) { return pad + (x - minX) / ((maxX - minX) || 1) * (W - pad * 2); }
+    function py(t) { return H - pad - t * (H - pad * 2); }
+    function path(key, n, color) {
+      if (!n) return '';
+      var d = '', started = false, dots = '';
+      rows.forEach(function (r) {
+        var v = r[key]; if (v == null || isNaN(v)) return;
+        var t = (v - n.mn) / n.range, X = px(r.x).toFixed(1), Y = py(t).toFixed(1);
+        d += (started ? 'L' : 'M') + X + ' ' + Y + ' '; started = true;
+        dots += '<circle cx="' + X + '" cy="' + Y + '" r="1.8" fill="' + color + '"/>';
+      });
+      return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" opacity="0.92"/>' + dots;
+    }
+    var na = norm('a'), nb = norm('b');
+    var fmt = function (v) { return Math.abs(v) >= 100 ? Math.round(v) : U.round(v, 1); };
+    var legend = '<div class="legend" style="justify-content:center">' +
+      '<span><i style="background:' + aOpt.color + '"></i>' + esc(aOpt.label) + (na ? ' (' + fmt(na.mn) + '–' + fmt(na.mx) + ')' : '') + '</span>' +
+      '<span><i style="background:' + bOpt.color + '"></i>' + esc(bOpt.label) + (nb ? ' (' + fmt(nb.mn) + '–' + fmt(nb.mx) + ')' : '') + '</span></div>';
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + path('a', na, aOpt.color) + path('b', nb, bOpt.color) +
+      '<text x="' + (W - pad) + '" y="' + (H - 5) + '" font-size="9" fill="#6a6f99" text-anchor="end">day</text></svg>' + legend;
+  }
+  // count-up animation for a hero number (respects reduced motion)
+  function countUp(el, target, ms) {
+    if (!el) return;
+    if (reducedMotion()) { el.textContent = Math.round(target).toLocaleString(); return; }
+    var start = 0, t0 = null, dur = ms || 1400;
+    function step(ts) {
+      if (t0 == null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur), eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(start + (target - start) * eased).toLocaleString();
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
 
   /* =================== AURORA BACKGROUND =================== */
   (function aurora() {
@@ -334,6 +381,7 @@
       '</div></div>' +
       '<div class="card"><div class="codex-quote" style="font-size:17px">' + esc(fill(dailyPick(CFG.quotes.daily), snap)) + '</div></div>' +
       '<div class="btn-grid"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
+      '<button class="btn ghost full" data-go="ascension" style="margin-top:10px">🌌 Ascension — Energy Bank</button>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
 
@@ -514,6 +562,79 @@
         '<p class="faint tiny">No resisted urges banked yet. Each one you ride out is mapped here.</p>') + '</div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
+  }
+
+  /* ---- ASCENSION / ENERGY BANK (increment 2, Part 1) ---- */
+  function screenAscension() {
+    var s = S.getSettings(), asOf = today();
+    var chiMode = state._ascChi || 'daily';     // daily earned vs cumulative banked
+    var hc = !!state._ascHC;
+    var cs = E.correlationStatus(s, asOf, hc);   // total + lock + (maybe) spearman
+    var data = E.ascensionData(s, asOf), rows = data.series;
+    function chiVal(r) { return chiMode === 'cumulative' ? r.chiCumulative : r.chiEarned; }
+    var chiLabel = chiMode === 'cumulative' ? 'Chi banked' : 'Chi/day';
+    function chart(key, label, color, scale) {
+      var rs = rows.map(function (r) {
+        var ov = r[key]; return { x: r.day, a: chiVal(r), b: (ov == null ? null : (scale ? ov * scale : ov)) };
+      });
+      return dualLineChart(rs, { label: chiLabel, color: '#62d8ff' }, { label: label, color: color });
+    }
+    function cstr(c) { return c == null ? '—' : (c > 0 ? '+' : '') + c.toFixed(2); }
+
+    // honest, non-overclaiming read
+    var read;
+    if (!cs.unlocked) {
+      read = 'Chi is accruing steadily. The attraction signal-rate is still too sparse to call — keep logging opportunities and the zero-days. The shapes below are for your eyes, not a verdict.';
+    } else {
+      var sStreak = cstr(cs.spearmanStreak), sChi = cstr(cs.spearmanChi);
+      read = 'Across ' + cs.nUsed + ' opportunity-days: signal-rate vs streak ' + sStreak + ', vs Chi ' + sChi + '. Association, not proof — and on ' + cs.behavedShare + '% of your signal days you also initiated more.';
+    }
+
+    // correlation card (locked / unlocked)
+    function prog(lbl, cur, need) {
+      var pct = U.clamp(cur / need * 100, 0, 100);
+      return '<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span class="tiny muted">' + lbl + '</span><span class="tiny faint">' + cur + ' / ' + need + '</span></div>' +
+        '<div class="bar" style="height:8px"><i style="width:' + pct + '%;background:linear-gradient(90deg,#5a2f9a,#c98bff)"></i></div></div>';
+    }
+    var lock = cs.thresholds, corrCard;
+    if (!cs.unlocked) {
+      corrCard = '<div class="card"><h3>Correlation</h3>' +
+        '<div class="flag info">🔒 Correlation unlocks around <b>Day ' + lock.minDay + '</b>, once there’s enough data to mean anything. Right now you’re building the baseline.</div>' +
+        prog('Day reached', cs.day, lock.minDay) +
+        prog('Opportunity-days logged', cs.oppDays, lock.minOppDays) +
+        prog('Days with a signal', cs.signalDays, lock.minSignalDays) +
+        '</div>';
+    } else {
+      corrCard = '<div class="card"><h3>Correlation <span class="pill">unlocked</span></h3>' +
+        '<div class="check' + (hc ? ' on' : '') + '" id="asc-hc"><span class="box">' + (hc ? '✓' : '') + '</span><span class="txt">High-confidence days only (4–5)</span></div>' +
+        '<table style="width:100%;font-size:13px;margin-top:8px">' +
+        '<tr><td class="muted">Signal-rate vs clean streak</td><td style="text-align:right"><b>' + cstr(cs.spearmanStreak) + '</b></td></tr>' +
+        '<tr><td class="muted">Signal-rate vs Chi level</td><td style="text-align:right"><b>' + cstr(cs.spearmanChi) + '</b></td></tr></table>' +
+        '<div class="flag info" style="margin-top:10px">Spearman rank — <b>association, not proof</b>. Confound: on ' + cs.behavedShare + '% of signal days you also initiated more.</div>' +
+        '</div>';
+    }
+
+    var html = '<div class="screen">' + header('Ascension') +
+      '<div class="card today-hero">' +
+        '<div class="day-num">Total Chi Accumulated</div>' +
+        '<div style="font-size:46px;line-height:1.1;color:var(--chi);text-shadow:0 0 28px rgba(98,216,255,.55);margin:6px 0"><b id="chi-total">0</b></div>' +
+        '<div class="tiny faint">Lifetime energy banked. A relapse dims today’s level — it never erases this.</div>' +
+      '</div>' +
+      '<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Chi vs outcomes</h3>' +
+        '<div class="seg"><button data-asc="daily" class="' + (chiMode === 'daily' ? 'on' : '') + '">daily</button><button data-asc="cumulative" class="' + (chiMode === 'cumulative' ? 'on' : '') + '">banked</button></div></div>' +
+        '<div class="tiny faint" style="margin:6px 0 4px">Each line is normalized to its own range — read the shapes side by side.</div>' +
+        '<div class="muted tiny" style="margin-top:10px">Chi vs attraction signal-rate</div>' + chart('signalRate', 'signal-rate %', '#c98bff', 100) +
+        '<div class="muted tiny" style="margin-top:6px">Chi vs mood</div>' + chart('mood', 'mood', '#5be0a0') +
+        '<div class="muted tiny" style="margin-top:6px">Chi vs urges resisted</div>' + chart('urges', 'urges', '#ff7aa8') +
+        '<div class="muted tiny" style="margin-top:6px">Chi vs plan adherence</div>' + chart('adherence', 'adherence %', '#d6af4e', 100) +
+      '</div>' +
+      '<div class="card"><h3>What the data shows</h3><p class="muted" style="line-height:1.5;margin:0">' + esc(read) + '</p></div>' +
+      corrCard +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    countUp(appEl.querySelector('#chi-total'), cs.total);
+    appEl.querySelectorAll('[data-asc]').forEach(function (b) { b.onclick = function () { state._ascChi = b.getAttribute('data-asc'); render(); }; });
+    var ah = appEl.querySelector('#asc-hc'); if (ah) ah.onclick = function () { state._ascHC = !state._ascHC; render(); };
   }
 
   /* ---- STUDY (section 6) ---- */
@@ -850,7 +971,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -860,7 +981,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });

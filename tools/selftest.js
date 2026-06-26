@@ -145,5 +145,22 @@ S.setSettings({ mealOverrides: { restA: { D: { protein: 999 } } } });
 var ov = S.blankLog('2026-06-26'); ov.nutrition = { dayType:'rest', templateId:'restA', meals:{ D:'eaten' } };
 check('meal override applied to consumed protein', E.nutritionAdherence(ov).consumedProtein, 999);
 
+// ---- increment 2: Energy Bank / Ascension ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var c = 0; c < 10; c++) { var dc = U.addDays('2026-06-08', c); S.saveLog(dc, Object.assign(S.blankLog(dc), { clean: true, breathingMin: 20, meditationMin: 10 })); }
+var t10 = E.totalChiAccumulated(st, U.addDays('2026-06-08', 9));
+check('totalChiAccumulated > 0 after 10 clean days', t10 > 0, true);
+var d11 = U.addDays('2026-06-08', 10);
+S.saveLog(d11, Object.assign(S.blankLog(d11), { clean: false }));
+S.addRelapse({ date: d11, note: '', streakLengthAtReset: 10 });
+var t11 = E.totalChiAccumulated(st, d11);
+check('lifetime Chi is monotonic across a relapse', t11 >= t10, true);
+check('relapse day adds no earned (0)', Math.round(t11 - t10), 0);
+var lock30 = E.correlationStatus(st, U.addDays('2026-06-08', 30));
+check('correlation locked before day 60', lock30.unlocked, false);
+check('spearman monotonic == 1', Math.round(U.spearman([1, 2, 3, 4, 5, 6], [2, 4, 6, 8, 10, 12])), 1);
+check('spearman inverse == -1', Math.round(U.spearman([1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1])), -1);
+check('spearman <5 pairs -> null', U.spearman([1, 2, 3], [1, 2, 3]), null);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -60,6 +60,35 @@
     return cov / Math.sqrt(vx * vy);
   }
 
+  // Average ranks (ties share the mean rank) for an array of numbers.
+  function rankAvg(arr) {
+    var idx = arr.map(function (v, i) { return { v: v, i: i }; })
+      .sort(function (a, b) { return a.v - b.v; });
+    var ranks = new Array(arr.length);
+    var k = 0;
+    while (k < idx.length) {
+      var j = k;
+      while (j + 1 < idx.length && idx[j + 1].v === idx[k].v) j++;
+      var avg = (k + j) / 2 + 1; // 1-based average rank for the tie group
+      for (var m = k; m <= j; m++) ranks[idx[m].i] = avg;
+      k = j + 1;
+    }
+    return ranks;
+  }
+
+  // Spearman rank correlation of two equal-length numeric arrays (pairs with
+  // any null/NaN dropped). null if fewer than 5 valid pairs.
+  function spearman(xs, ys) {
+    var px = [], py = [], n = Math.min(xs.length, ys.length);
+    for (var i = 0; i < n; i++) {
+      var x = xs[i], y = ys[i];
+      if (x == null || y == null || isNaN(x) || isNaN(y)) continue;
+      px.push(x); py.push(y);
+    }
+    if (px.length < 5) return null;
+    return pearson(rankAvg(px), rankAvg(py));
+  }
+
   // Least-squares slope/intercept for a trendline.
   function linreg(xs, ys) {
     var n = Math.min(xs.length, ys.length), k = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
@@ -84,7 +113,7 @@
 
   global.RTI_UTIL = {
     toISO: toISO, todayISO: todayISO, fromISO: fromISO, daysBetween: daysBetween,
-    addDays: addDays, clamp: clamp, round: round, pearson: pearson, linreg: linreg,
-    escapeHtml: escapeHtml
+    addDays: addDays, clamp: clamp, round: round, pearson: pearson, spearman: spearman,
+    rankAvg: rankAvg, linreg: linreg, escapeHtml: escapeHtml
   };
 })(typeof window !== 'undefined' ? window : this);

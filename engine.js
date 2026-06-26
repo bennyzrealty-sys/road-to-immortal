@@ -281,6 +281,76 @@
     return t;
   }
 
+  /* ---------- Energy Bank: lifetime Chi (monotonic) (increment 2) ----------
+     dailyChiEarned = the Chi a day GENERATED from its inputs, before any
+     relapse dampening: (2*breath + 1*med + 10*clean) * streakBonus(that day).
+     totalChiAccumulated never decreases — a relapse dampens today's *level*
+     (the meter), it does not erase banked work. Single timeline pass. */
+  function chiSeries(settings, asOf) {
+    var start = settings.startDate, series = [], total = 0;
+    if (U.daysBetween(start, asOf) < 0) return { series: series, total: 0 };
+    var span = U.daysBetween(start, asOf), mc = CFG.meters.chi, sh = CFG.shields;
+    var streak = 0, shields = 0, week = 0;
+    for (var i = 0; i <= span; i++) {
+      var date = U.addDays(start, i), st = dayStatus(date);
+      if (st === 'clean') { streak++; week++; if (week >= sh.perPerfectWeekDays) { shields = Math.min(sh.maxStored, shields + 1); week = 0; } }
+      else if (st === 'broken') { if (shields > 0) { shields--; week = 0; } else { streak = 0; week = 0; } }
+      else { week = 0; }
+      var log = S.getLog(date), clean = log.clean === true ? 1 : 0;
+      var bonus = U.clamp(1 + streak * mc.streakBonusPer, 1, mc.streakBonusCap);
+      var earned = (mc.perBreathingMin * num(log.breathingMin) + mc.perMeditationMin * num(log.meditationMin) + mc.perCleanDay * clean) * bonus;
+      total += earned; // earned >= 0 always -> monotonic
+      series.push({ day: i + 1, date: date, status: st, streak: streak, earned: earned, cumulative: total });
+    }
+    return { series: series, total: total };
+  }
+  function totalChiAccumulated(settings, asOf) { return chiSeries(settings, asOf).total; }
+
+  // Per-day Chi (earned + cumulative) joined with each outcome, for the
+  // Ascension comparison charts.
+  function ascensionData(settings, asOf) {
+    var cs = chiSeries(settings, asOf);
+    var out = cs.series.map(function (d) {
+      var log = S.getLog(d.date), study = log.study;
+      var opp = study && study.opportunities, hasOpp = opp != null && opp > 0;
+      var clear = (study && study.signalsClear) || 0, amb = (study && study.signalsAmbiguous) || 0;
+      var adh = nutritionAdherence(log);
+      return {
+        day: d.day, date: d.date, chiEarned: d.earned, chiCumulative: d.cumulative, streak: d.streak,
+        signalRate: hasOpp ? (clear + amb) / opp : null,
+        signalClearRate: hasOpp ? clear / opp : null,
+        hasOpp: hasOpp, hasSignal: hasOpp && (clear + amb) > 0,
+        confidence: (study && study.confidence) || 0,
+        behavedDifferently: !!(study && study.behavedDifferently),
+        mood: log.mood != null ? log.mood : null,
+        urges: S.urgesOnDate(d.date),
+        adherence: adh.chosen ? adh.adherence : null
+      };
+    });
+    return { series: out, total: cs.total };
+  }
+
+  // Correlation integrity gate (section 1.3). Locked until day>=minDay AND
+  // enough opportunity-days AND enough signal-days. Spearman when unlocked.
+  function correlationStatus(settings, asOf, hcOnly) {
+    var data = ascensionData(settings, asOf), lock = CFG.ascension.correlationLock;
+    var day = dayNumber(settings, asOf);
+    var oppDays = data.series.filter(function (d) { return d.hasOpp; }).length;
+    var signalDays = data.series.filter(function (d) { return d.hasSignal; }).length;
+    var unlocked = day >= lock.minDay && oppDays >= lock.minOppDays && signalDays >= lock.minSignalDays;
+    var res = { unlocked: unlocked, day: day, oppDays: oppDays, signalDays: signalDays, thresholds: lock, total: data.total };
+    if (unlocked) {
+      var used = data.series.filter(function (d) { return d.hasOpp && (!hcOnly || d.confidence >= 4); });
+      var rate = used.map(function (d) { return d.signalRate; });
+      res.spearmanStreak = U.spearman(rate, used.map(function (d) { return d.streak; }));
+      res.spearmanChi = U.spearman(rate, used.map(function (d) { return metersAsOf(settings, d.date).chi; }));
+      var sig = used.filter(function (d) { return d.hasSignal; });
+      res.behavedShare = sig.length ? Math.round(sig.filter(function (d) { return d.behavedDifferently; }).length / sig.length * 100) : 0;
+      res.nUsed = used.length;
+    }
+    return res;
+  }
+
   /* ---------- full snapshot for the UI ---------- */
   function snapshot(asOf) {
     var settings = S.getSettings();
@@ -301,6 +371,8 @@
     dayNumber: dayNumber, progress: progress, rankFor: rankFor, dayStatus: dayStatus,
     streakAsOf: streakAsOf, metersAsOf: metersAsOf, chiDeltaForBreathing: chiDeltaForBreathing,
     weeklyTotals: weeklyTotals, snapshot: snapshot,
+    chiSeries: chiSeries, totalChiAccumulated: totalChiAccumulated,
+    ascensionData: ascensionData, correlationStatus: correlationStatus,
     nutritionAdherence: nutritionAdherence, nutritionFlags: nutritionFlags,
     activeTags: activeTags, getTemplate: getTemplate, effectiveMeal: effectiveMeal
   };
