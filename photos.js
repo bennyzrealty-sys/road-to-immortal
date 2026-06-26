@@ -57,6 +57,10 @@
     var io = dist(lm[468], lm[473]);          // inter-ocular (iris centres)
     var bizygomatic = dist(lm[234], lm[454]); // cheekbone width
     var bigonial = dist(lm[172], lm[397]);    // jaw-angle width
+    // fWHR uses true pixel width over true pixel height. Landmarks arrive in
+    // real pixels (x*imgW, y*imgH), so width(px)/height(px) is the face's real
+    // proportion — invariant to camera distance AND image aspect ratio (the
+    // per-axis scale is the correct normalized->pixel conversion, not a leak).
     var faceHeight = Math.abs(lm[0].y - lm[168].y); // upper lip -> glabella
     var cheek = dist(lm[50], lm[280]);        // mid-cheek width
     return {
@@ -95,8 +99,7 @@
     var hip = dist(pose[23], pose[24]);
     return {
       shoulderHip: sh / (hip || 1),
-      shoulderWaist: waistPx ? sh / waistPx : null,
-      _shoulderPx: sh, _hipPx: hip
+      shoulderWaist: waistPx ? sh / waistPx : null // ratios only — no absolute px tracked
     };
   }
 
@@ -184,6 +187,7 @@
   // intervalSummary: { workouts, cardioMin, adherencePct, fatTrend ('down'|'flat'|'up'|null), days }
   // daysApart: integer; baselineMetrics optional.
   function verdict(prev, curr, base, summary, daysApart, kind) {
+    if (!curr) return { tone: 'info', text: 'Could not measure this photo — re-shoot in even light.' };
     if (!prev) return { tone: 'info', text: 'Baseline captured. From here the app compares every new ' + kind + ' photo against this and the last one — automatically.' };
     var noise = daysApart < CFG.photos.weeklyDays;
     var lines = [];
@@ -233,7 +237,12 @@
 
   /* ---------------- separate photo export / import --------------------- */
   function blobToDataURL(b) { return new Promise(function (r) { var fr = new FileReader(); fr.onload = function () { r(fr.result); }; fr.readAsDataURL(b); }); }
-  function dataURLToBlob(d) { var p = d.split(','), m = p[0].match(/:(.*?);/)[1], bin = atob(p[1]), n = bin.length, u = new Uint8Array(n); while (n--) u[n] = bin.charCodeAt(n); return new Blob([u], { type: m }); }
+  function dataURLToBlob(d) {
+    if (!d || d.indexOf(',') < 0) throw new Error('missing image data');
+    var p = d.split(','), mm = p[0].match(/:(.*?);/), m = mm ? mm[1] : 'image/jpeg';
+    var bin = atob(p[1]), n = bin.length, u = new Uint8Array(n); while (n--) u[n] = bin.charCodeAt(n);
+    return new Blob([u], { type: m });
+  }
   async function exportJourney() {
     var ps = await allPhotos(), out = [];
     for (var i = 0; i < ps.length; i++) {
@@ -245,12 +254,14 @@
   }
   async function importJourney(obj) {
     if (!obj || obj.app !== 'road-to-immortal-photos' || !Array.isArray(obj.photos)) return { ok: false, error: 'Not a Road to Immortal photo-journey file.' };
+    var added = 0;
     for (var i = 0; i < obj.photos.length; i++) {
-      var p = obj.photos[i], rec = {}; for (var k in p) if (k !== 'image' && k !== 'id') rec[k] = p[k];
+      var p = obj.photos[i]; if (!p.image || p.image.indexOf(',') < 0) continue; // skip malformed
+      var rec = {}; for (var k in p) if (k !== 'image' && k !== 'id') rec[k] = p[k];
       rec.blob = dataURLToBlob(p.image);
-      await addPhoto(rec);
+      await addPhoto(rec); added++;
     }
-    return { ok: true, count: obj.photos.length };
+    return { ok: true, count: added };
   }
 
   global.RTI_PHOTO = {

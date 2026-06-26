@@ -7,7 +7,7 @@
    localStorage, never fetched).
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v4';
+var CACHE = 'rti-shell-v5';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',

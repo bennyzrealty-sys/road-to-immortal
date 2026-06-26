@@ -693,7 +693,7 @@
         '<div class="divider"></div><div class="tiny muted">Before / after — drag to wipe</div>' + cmp +
         '<div class="divider"></div><div class="tiny muted">' + (type === 'face' ? 'Jaw ratio' : 'Shoulder ÷ hip') + ' vs cardio (per interval)</div>' + photoTrendChart(ofType, type) +
         '<div class="tiny faint" style="margin-top:6px">' + (type !== 'face' ? 'Body ratios are lower-confidence than face metrics.' : 'Lower jaw ratio = more tapered. Trust weekly shapes, not single frames.') + '</div>';
-      recent.forEach(function (p) { var img = host.querySelector('[data-pid="' + p.id + '"]'); if (img) img.src = URL.createObjectURL(p.blob); });
+      recent.forEach(function (p) { var img = host.querySelector('[data-pid="' + p.id + '"]'); if (img) { var u = URL.createObjectURL(p.blob); img.onload = function () { URL.revokeObjectURL(u); }; img.src = u; } });
       if (ofType.length >= 2) buildCompare(host.querySelector('#p-compare'), ofType[0], ofType[ofType.length - 1]);
     }).catch(function (e) { host.innerHTML = '<h3>Journey</h3><p class="faint tiny">Photo store error: ' + esc(e.message) + '</p>'; });
   }
@@ -712,6 +712,9 @@
     el.innerHTML = '<div class="cmp"><img src="' + ub + '"><img class="cmp-top" src="' + ua + '">' +
       '<span class="cmp-lbl" style="left:8px">' + a.date + '</span><span class="cmp-lbl" style="right:8px">' + b.date + '</span>' +
       '<input type="range" min="0" max="100" value="50" class="cmp-range"></div>';
+    var imgs = el.querySelectorAll('img'); // [0]=bottom(ub), [1]=top(ua) — revoke once decoded
+    if (imgs[0]) imgs[0].onload = function () { URL.revokeObjectURL(ub); };
+    if (imgs[1]) imgs[1].onload = function () { URL.revokeObjectURL(ua); };
     var top = el.querySelector('.cmp-top'), rng = el.querySelector('.cmp-range');
     rng.oninput = function () { top.style.clipPath = 'inset(0 ' + (100 - rng.value) + '% 0 0)'; };
   }
@@ -734,7 +737,7 @@
         '<button class="btn ghost sm" data-c="cancel">Cancel</button></div></div>');
       document.body.appendChild(ov);
       var video = ov.querySelector('#cam-v'), stream = null;
-      if (prev) ov.querySelector('#cam-ghost').src = URL.createObjectURL(prev.blob);
+      if (prev) { var gu = URL.createObjectURL(prev.blob); var gel = ov.querySelector('#cam-ghost'); gel.onload = function () { URL.revokeObjectURL(gu); }; gel.src = gu; }
       function start(f) {
         if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { ov.querySelector('#cam-msg').textContent = 'This browser/context has no camera access (needs HTTPS or localhost).'; return; }
@@ -759,19 +762,19 @@
     measure.then(function (res) {
       if (res.error) { msg.textContent = res.error; return; }
       if (type === 'face' && res.quality && !res.quality.ok) { msg.innerHTML = '↻ Re-shoot — ' + esc(res.quality.reasons.join(' · ')); return; }
-      RTI_PHOTO.canvasToBlob(cc.canvas).then(function (blob) {
+      return RTI_PHOTO.canvasToBlob(cc.canvas).then(function (blob) {
         var d = today(), snap = E.snapshot(d);
         var rec = { date: d, day: snap.day, type: type, blob: blob, w: cc.w, h: cc.h,
           weightKg: numOrNull(appEl.querySelector('#p-weight')), fatPct: numOrNull(appEl.querySelector('#p-fat')),
           metrics: res.metrics, quality: res.quality || null, waistConfident: res.waistConfident || false, createdAt: Date.now() };
-        RTI_PHOTO.add(rec).then(function () {
+        return RTI_PHOTO.add(rec).then(function () {
           if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
           ov.remove();
           if (rec.fatPct != null) S.patchLog(d, { fatPct: rec.fatPct }); // so cross-checks see it
           showPhotoVerdict(type, rec);
         });
       });
-    }).catch(function (e) { msg.textContent = 'Measure failed: ' + e.message; });
+    }).catch(function (e) { msg.textContent = 'Could not save: ' + (e && e.message || e); if (stream) stream.getTracks().forEach(function (t) { t.stop(); }); });
   }
   function showPhotoVerdict(type, rec) {
     RTI_PHOTO.all().then(function (ps) {
@@ -815,7 +818,7 @@
     r.onload = function () {
       var obj; try { obj = JSON.parse(r.result); } catch (err) { alert('That file is not valid JSON.'); return; }
       if (!confirm('Import this photo journey? Photos are ADDED to what you already have.')) return;
-      RTI_PHOTO.importJourney(obj).then(function (res) { if (res.ok) { toast('Imported ' + res.count + ' photos.'); render(); } else alert(res.error); });
+      RTI_PHOTO.importJourney(obj).then(function (res) { if (res.ok) { toast('Imported ' + res.count + ' photos.'); render(); } else alert(res.error); }).catch(function (err) { alert('Import failed: ' + (err && err.message || err)); });
     };
     r.readAsText(f);
   }

@@ -108,6 +108,54 @@ on Shift B / Shift D or any day with a pork-curry/salmon dinner.
 
 ---
 
+## Increment 2 — Ascension + on-device photo measurement
+
+**Part 1 · Ascension / Energy Bank** (`engine.js`, `util.js`, `app.js` `screenAscension`)
+- `totalChiAccumulated` — a **monotonic** lifetime number (sum of each day's earned
+  Chi *before* relapse dampening). A relapse dims today's *level* (the meter); it
+  never reduces the banked total. Reached from **Today → Ascension**.
+- 4 dual-line charts (Chi vs signal-rate / mood / urges / adherence), daily/banked toggle.
+- **Correlation lock** — no number until Day ≥ 60 **and** ≥ 15 opportunity-days **and**
+  ≥ 10 signal-days (`config.ascension.correlationLock`). Then **Spearman**, labelled
+  *"association, not proof,"* with the confound flag + high-confidence filter.
+
+**Part 2 · Photo module** (`photos.js`, `app.js` `screenPhotos`, `vendor/mediapipe/`)
+- MediaPipe Tasks Vision is **vendored** in `vendor/mediapipe/` (face + pose-lite +
+  segmenter models, ESM bundle, SIMD/no-SIMD WASM) and loaded locally — **no runtime CDN**.
+- Capture (`getUserMedia`) with an **alignment ghost** of the last shot + framing guide,
+  a **frame-quality gate** (near-frontal + neutral via blendshapes + eyes open),
+  downscale to ≤1080px JPEG, stored in **IndexedDB** (`rti_photos_db`, separate from the
+  main `localStorage` export — photos have their **own** Export/Import).
+- **Validity:** every tracked metric is a **ratio** (face: jaw ratio, fWHR, gonial angle,
+  cheek fullness; body: shoulder/hip, shoulder/waist) so a closer photo gives the same
+  numbers (regression-tested for scale **and** aspect-ratio invariance). Waist (from
+  segmentation) is marked **lower-confidence**.
+- On each capture it **auto-compares** against the previous + baseline, cross-checks the
+  interval's training / fat%, and gives a **plain-language, rules-based** read — never a
+  prescription. A **weekly-cadence gate** labels sub-7-day shots as noise.
+- **Module B (cloud interpreter): OFF** — a disabled placeholder. No network call; nothing
+  leaves the device.
+
+### Testing the photo flow locally
+1. `python -m http.server 8123` → open `http://localhost:8123/` (camera needs a secure
+   context; `localhost` counts, plain-HTTP LAN does **not**).
+2. Today → **Photos** → pick a type → **Open camera** → allow permission → Capture. A face
+   shot is rejected unless near-frontal/neutral; on accept it measures and shows the read.
+3. `node tools/selftest.js` → **69 passed** (incl. metric scale/aspect invariance + cadence gate).
+
+### Storage notes
+- ~80–200 KB per stored JPEG (≤1080px @ q0.8). 100 photos ≈ 10–20 MB in IndexedDB.
+- **Photos are NOT in the main backup** — use Photos → *Export photo journey* (one JSON with
+  base64 images) separately; the main *Export JSON* stays light.
+- First online load caches ~19 MB of MediaPipe (SW v5); after that the photo module works offline.
+
+### Validity caveats to keep visible
+- Metrics are **normalized ratios** — trust them over raw pixels.
+- **Weekly cadence:** faces shift daily with sleep/water; a real trend needs ~7-day gaps.
+- **"Association, not proof"** — the Ascension correlation is Spearman with a confound flag.
+- **Body metrics are lower-confidence** than face metrics (pose/framing move them); the waist
+  estimate (segmentation) is the least certain.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

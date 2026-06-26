@@ -197,6 +197,20 @@ var vNoise = P.verdict({ jawRatio: 0.7, cheekFullness: 0.5 }, { jawRatio: 0.66, 
 check('sub-week capture labelled noise (info)', vNoise.tone, 'info');
 var vWeek = P.verdict({ jawRatio: 0.7, cheekFullness: 0.5 }, { jawRatio: 0.66, cheekFullness: 0.48 }, null, { cardioMin: 200 }, 14, 'face');
 check('weekly sharper+cardio -> amber read', vWeek.tone, 'amber');
+check('verdict null curr -> no crash', P.verdict({ jawRatio: 0.7 }, null, null, { cardioMin: 0 }, 14, 'face').tone, 'info');
+
+// fWHR aspect-ratio invariance through the real normalized->pixel conversion
+// (same face, 1:1 vs 1:2 image). Refutes the audit's "fWHR embeds w/h" claim.
+function normFace(W, H) {
+  var real = { 234: [300, 420], 454: [700, 420], 0: [500, 560], 168: [500, 390], 468: [470, 400], 473: [530, 400], 172: [336, 540], 397: [664, 540], 152: [500, 600], 10: [500, 300], 50: [420, 500], 280: [580, 500], 1: [500, 500], 33: [440, 400], 263: [560, 400] };
+  var lm = []; for (var i = 0; i < 478; i++) lm.push({ x: 0, y: 0 });
+  for (var k in real) lm[+k] = { x: real[k][0] / W * W, y: real[k][1] / H * H }; // normalize then pixelize == real px
+  return lm;
+}
+var fA = P.faceMetrics(normFace(1000, 1000)), fB = P.faceMetrics(normFace(1000, 2000));
+check('fWHR aspect-invariant (1:1 vs 1:2 image, same face)', Math.abs(fA.fWHR - fB.fWHR) < 1e-9, true);
+check('jawRatio aspect-invariant', Math.abs(fA.jawRatio - fB.jawRatio) < 1e-9, true);
+check('fWHR real value (400/170)', +fA.fWHR.toFixed(2), 2.35);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
