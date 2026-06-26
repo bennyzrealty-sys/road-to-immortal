@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>Road to Immortal</title>
+  <meta name="description" content="A personal, offline-first monk-mode discipline tracker. All data stays on this device." />
+  <meta name="theme-color" content="#0b0b1a" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Immortal" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-grad"></div>
+  <canvas id="aurora"></canvas>
+  <canvas id="fx"></canvas>
+
+  <div id="app"><!-- rendered by app.js --></div>
+
+  <nav class="tabs" id="tabs"></nav>
+  <button id="urge-fab" aria-label="Urge — tap for help">URGE</button>
+
+  <!-- scripts: classic, load order matters (shared globals) -->
+  <script src="./config.js"></script>
+  <script src="./util.js"></script>
+  <script src="./store.js"></script>
+  <script src="./engine.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

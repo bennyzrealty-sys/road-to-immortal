@@ -1,0 +1,18 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+
+# Vercel
+.vercel
+
+# Local Claude Code preview config (machine-specific absolute paths)
+.claude/
+
+# Node (not used at runtime; only optional tooling)
+node_modules/
+npm-debug.log*
+
+# Local backups exported from the app (keep your data out of git)
+road-to-immortal-backup-*.json
