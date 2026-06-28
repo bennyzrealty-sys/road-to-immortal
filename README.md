@@ -156,6 +156,57 @@ on Shift B / Shift D or any day with a pork-curry/salmon dinner.
 - **Body metrics are lower-confidence** than face metrics (pose/framing move them); the waist
   estimate (segmentation) is the least certain.
 
+## Increment 3 — The Ascendant (proactive coach · power · stages · signals)
+
+The earlier increments were **passive logbooks**: the owner had to remember what to
+fill, where, and when. Increment 3 makes the app **ask first** and **show the charge**.
+
+**Proactive coach (Today, top card)** — `engine.js` `dailyAgenda`/`coachPhase`, `app.js`
+`coachCard`/`wireCoach`
+- Reads the **local clock** and greets by phase (morning / midday / afternoon / evening /
+  late). The night phase wraps midnight and names the danger hour.
+- Surfaces the single most relevant unfilled thing **right now** with one-tap inline
+  actions — *“Is today a shift day or rest day?”* → sets it and jumps to the plan;
+  *“Had your lunch yet?”*, *“Did you hold the line today?”* (Held / Slipped), *Breathe +5*,
+  *Meditate +5*, *+1,000 steps*. Meal nudges follow `config.coach.mealWindows`.
+- A **completion ring** (`% logged today`) plus a tappable **“what’s left”** list so the
+  owner never has to hunt for what’s missing. Meal items stay locked until a day-type +
+  plan are chosen (with a hint).
+
+**Immortal Power** (`app.js` `screenPower`, reached from Today / Codex) — `engine.js`
+`auraScores` / `stageFor` / `performanceSummary`
+- A **pictorial human body that charges** feet→head; the fill % is the **Immortal Power**,
+  a 0–100 blend weighted toward the *permanence of the clean streak* (a relapse genuinely
+  discharges it; a kept streak rebuilds it). Energy nodes light as it rises.
+- A semicircular **Magnetism / attraction-field gauge** (presence-led) — framed as *your
+  own charge, never a promise about anyone else.*
+- **Energy & attractiveness acquired**: the four meters + lifetime banked Chi, streak
+  permanence, current/longest streak, shields, Immortal Index.
+- **Stages, stage after stage**: a ladder keyed to the clean streak (The Fog → … → The
+  Immortal Current). Each stage lists *what shifts inside you* and *the cues you may begin
+  to notice* — explicitly labelled **tendencies, not promises**, with the same
+  initiative-confound caveat used elsewhere.
+- **Overall standing**: clean rate, current/longest streak, 7-day Immortal-Index average +
+  trend arrow, adherence, relapses.
+
+**Signals — the body-language field codex** (`app.js` `screenSignals`, `config.signals`)
+- An educational guide to reading interest **honestly and respectfully**: what a *normal
+  glance* is, the *held glance*, the *double-take*, the *look-back after passing*,
+  *proximity*, *preening*, *feet/torso orientation*, *mirroring*, the *watcher at the edge*
+  (shy interest **or** wanting space — both respected), and more.
+- Every entry is **Looks like / Can mean / Carry yourself**, wrapped in a hard **respect &
+  consent** frame: signals are probabilistic, politeness ≠ attraction, a turn-away or
+  withdrawal is a complete answer, and the aim is to become *worth meeting* — never to
+  pressure, follow, or surveil anyone.
+
+**Dark Codex** — a new **Dark** tab in the Codex with original, dark-academia one-liners on
+non-neediness, frame and restraint (*power over the self, not over others*).
+
+All Increment-3 numbers are **derived** (nothing new is hand-entered) and the engine
+gained five pure functions (`coachPhase`, `dailyAgenda`, `auraScores`, `stageFor`,
+`performanceSummary`) covered by **16 new self-test assertions** (`node tools/selftest.js`
+→ **85 passed**). Service-worker cache bumped to **v7**.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

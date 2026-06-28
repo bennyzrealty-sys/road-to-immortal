@@ -351,6 +351,141 @@
     return res;
   }
 
+  /* =====================================================================
+     INCREMENT 3 — THE ASCENDANT (derived: coach, aura, stages, standing)
+     ===================================================================== */
+
+  /* ---------- coach: which phase of the day are we in ---------- */
+  function coachPhase(hour) {
+    var ph = CFG.coach.phases;
+    for (var i = 0; i < ph.length; i++) {
+      var p = ph[i];
+      if (p.from < p.to) { if (hour >= p.from && hour < p.to) return p; }
+      else { if (hour >= p.from || hour < p.to) return p; } // wraps midnight
+    }
+    return ph[0];
+  }
+  // the meal to nudge for around `hour` (latest-starting window that contains it)
+  function mealNudge(hour) {
+    var mw = CFG.coach.mealWindows, order = CFG.nutrition.mealOrder, best = null, bestFrom = -1;
+    for (var i = 0; i < order.length; i++) {
+      var k = order[i].key, w = mw[k];
+      if (w && hour >= w[0] && hour < w[1] && w[0] > bestFrom) { best = k; bestFrom = w[0]; }
+    }
+    return best;
+  }
+
+  /* ---------- daily agenda: what's filled, what's missing, what's timely ----------
+     The engine returns SEMANTIC items (kind/ids). The UI maps them to inline
+     actions or routes. completion is over the core daily set. */
+  function dailyAgenda(settings, asOf, hour) {
+    var log = S.getLog(asOf), n = log.nutrition || {};
+    var phase = coachPhase(hour), pid = phase.id, curMeal = mealNudge(hour);
+    var targets = settings.dailyTargets || CFG.dailyTargets;
+    var doneArr = log.todayTargetsDone || [];
+    var allTargets = doneArr.length === targets.length && doneArr.length > 0 && doneArr.every(function (b) { return b === true; });
+    var moved = num(log.steps) > 0 || !!log.workout || (log.cardio && (log.cardio.minutes == null || num(log.cardio.minutes) > 0));
+    var hasType = !!n.dayType, hasPlan = !!n.templateId;
+    var mealLabel = {}; CFG.nutrition.mealOrder.forEach(function (mo) { mealLabel[mo.key] = mo.label; });
+
+    var items = [];
+    function push(id, kind, label, done, opts) {
+      opts = opts || {};
+      items.push({ id: id, kind: kind, label: label, done: !!done, timely: !!opts.timely, blocked: !!opts.blocked, mealKey: opts.mealKey || null });
+    }
+    push('daytype', 'daytype', 'Shift day or rest day?', hasType, { timely: pid === 'morning' });
+    push('plan', 'plan', 'Choose today’s meal plan', hasPlan, { timely: pid === 'morning', blocked: !hasType });
+    CFG.nutrition.mealOrder.forEach(function (mo) {
+      var k = mo.key, got = n.meals && n.meals[k] != null;
+      push('meal-' + k, 'meal', 'Log ' + mealLabel[k].toLowerCase(), got, { timely: k === curMeal, blocked: !hasPlan, mealKey: k });
+    });
+    push('clean', 'clean', 'Did you hold the line today?', log.clean !== null, { timely: pid === 'evening' || pid === 'night' });
+    push('breath', 'breath', 'Energy / testicle breathing', num(log.breathingMin) > 0, { timely: pid === 'morning' || pid === 'afternoon' });
+    push('med', 'med', 'Meditate', num(log.meditationMin) > 0, { timely: pid === 'afternoon' || pid === 'evening' });
+    push('move', 'move', 'Move — steps / cardio', moved, { timely: pid === 'midday' || pid === 'afternoon' });
+    push('mood', 'mood', 'Log today’s mood', log.mood != null, { timely: pid === 'evening' });
+    push('targets', 'targets', 'Finish today’s targets', allTargets, { timely: pid === 'evening' });
+
+    var total = items.length, done = items.filter(function (it) { return it.done; }).length;
+    var pending = items.filter(function (it) { return !it.done && !it.blocked; });
+    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    pending.sort(function (a, b) {
+      var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
+      if (at !== bt) return at - bt;
+      return (prio[a.kind] == null ? 4 : prio[a.kind]) - (prio[b.kind] == null ? 4 : prio[b.kind]);
+    });
+    return {
+      phase: pid, greet: phase.greet, line: phase.line, curMeal: curMeal,
+      items: items, doneCount: done, totalCount: total,
+      completionPct: total ? Math.round(done / total * 100) : 0,
+      primary: pending[0] || null, pendingCount: pending.length
+    };
+  }
+
+  /* ---------- aura: Immortal Power + Magnetism (both 0-100, self-referential) ---------- */
+  function auraScores(settings, asOf) {
+    var m = metersAsOf(settings, asOf);
+    var streak = streakAsOf(settings, asOf);
+    var bank = totalChiAccumulated(settings, asOf);
+    var a = CFG.aura;
+    var normStreak = U.clamp(streak.current / a.powerStreakRefDays * 100, 0, 100);
+    var normBank = U.clamp(bank / a.chiBankRef * 100, 0, 100);
+    var pw = a.powerWeights, mw = a.magnetWeights;
+    var power = pw.streak * normStreak + pw.index * m.index + pw.bank * normBank;
+    var magnetism = mw.presence * m.presence + mw.streak * normStreak + mw.chi * m.chi + mw.willpower * m.willpower;
+    return {
+      power: U.round(U.clamp(power, 0, 100), 0),
+      magnetism: U.round(U.clamp(magnetism, 0, 100), 0),
+      energyBanked: Math.round(bank),
+      normStreak: U.round(normStreak, 0), normBank: U.round(normBank, 0),
+      meters: m, streak: streak
+    };
+  }
+
+  /* ---------- stage ladder (keyed by current clean streak) ---------- */
+  function stageFor(streak) {
+    var st = CFG.stages, idx = 0;
+    for (var i = 0; i < st.length; i++) if (streak >= st[i].reach) idx = i;
+    var cur = st[idx], next = idx + 1 < st.length ? st[idx + 1] : null;
+    var progressPct = next ? U.clamp((streak - cur.reach) / (next.reach - cur.reach) * 100, 0, 100) : 100;
+    return { index: idx, current: cur, next: next, progressPct: U.round(progressPct, 0), daysToNext: next ? Math.max(0, next.reach - streak) : 0 };
+  }
+
+  /* ---------- overall standing / performance summary ---------- */
+  function performanceSummary(settings, asOf) {
+    var day = dayNumber(settings, asOf);
+    var elapsed = Math.max(0, U.daysBetween(settings.startDate, asOf));
+    var clean = 0, broken = 0, answered = 0, adhSum = 0, adhN = 0;
+    for (var i = 0; i <= elapsed; i++) {
+      var date = U.addDays(settings.startDate, i);
+      if (U.daysBetween(settings.startDate, date) < 0) continue;
+      var st = dayStatus(date);
+      if (st === 'clean') { clean++; answered++; }
+      else if (st === 'broken') { broken++; answered++; }
+      var a = nutritionAdherence(S.getLog(date)); if (a.chosen) { adhSum += a.adherence; adhN++; }
+    }
+    var streak = streakAsOf(settings, asOf), cur = metersAsOf(settings, asOf);
+    function avgIndex(off) {
+      var s = 0, k = 0;
+      for (var j = 0; j < 7; j++) {
+        var d = U.addDays(asOf, -(off + j));
+        if (U.daysBetween(settings.startDate, d) < 0) continue;
+        s += metersAsOf(settings, d).index; k++;
+      }
+      return k ? s / k : null;
+    }
+    var a7 = avgIndex(0), a14 = avgIndex(7);
+    var trend = (a7 == null || a14 == null) ? 0 : (a7 > a14 + 1 ? 1 : (a7 < a14 - 1 ? -1 : 0));
+    return {
+      day: day, elapsed: elapsed, cleanDays: clean, brokenDays: broken, answeredDays: answered,
+      cleanRatePct: answered ? Math.round(clean / answered * 100) : null,
+      currentStreak: streak.current, longestStreak: streak.longest, shields: streak.shields,
+      adherencePct: adhN ? Math.round(adhSum / adhN * 100) : null,
+      index: cur.index, avgIndex7: a7 == null ? null : Math.round(a7), indexTrend: trend,
+      totalChi: Math.round(totalChiAccumulated(settings, asOf)), relapses: S.getRelapses().length
+    };
+  }
+
   /* ---------- full snapshot for the UI ---------- */
   function snapshot(asOf) {
     var settings = S.getSettings();
@@ -374,6 +509,8 @@
     chiSeries: chiSeries, totalChiAccumulated: totalChiAccumulated,
     ascensionData: ascensionData, correlationStatus: correlationStatus,
     nutritionAdherence: nutritionAdherence, nutritionFlags: nutritionFlags,
-    activeTags: activeTags, getTemplate: getTemplate, effectiveMeal: effectiveMeal
+    activeTags: activeTags, getTemplate: getTemplate, effectiveMeal: effectiveMeal,
+    coachPhase: coachPhase, dailyAgenda: dailyAgenda, auraScores: auraScores,
+    stageFor: stageFor, performanceSummary: performanceSummary
   };
 })(typeof window !== 'undefined' ? window : this);

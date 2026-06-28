@@ -212,5 +212,34 @@ check('fWHR aspect-invariant (1:1 vs 1:2 image, same face)', Math.abs(fA.fWHR - 
 check('jawRatio aspect-invariant', Math.abs(fA.jawRatio - fB.jawRatio) < 1e-9, true);
 check('fWHR real value (400/170)', +fA.fWHR.toFixed(2), 2.35);
 
+// ---- increment 3: coach / aura / stages / standing ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+// stage ladder boundaries
+check('stage @ streak 0', E.stageFor(0).current.name, 'The Fog');
+check('stage @ streak 7', E.stageFor(7).current.name, 'The Clearing');
+check('stage @ streak 30', E.stageFor(30).current.name, 'Magnetic Field');
+check('stage @ streak 180 (summit)', E.stageFor(180).current.name, 'The Immortal Current');
+check('stage @ summit has no next', E.stageFor(180).next, null);
+// coach phase wraps midnight
+check('coach phase @ 08h morning', E.coachPhase(8).id, 'morning');
+check('coach phase @ 23h night', E.coachPhase(23).id, 'night');
+check('coach phase @ 02h night (wrap)', E.coachPhase(2).id, 'night');
+// blank day: nothing logged -> 0% complete, first nudge is day-type
+var ag0 = E.dailyAgenda(st, '2026-06-26', 8);
+check('blank agenda 0% complete', ag0.completionPct, 0);
+check('blank agenda primary = daytype', ag0.primary.kind, 'daytype');
+// aura: no data -> zero power, scores bounded
+var a0 = E.auraScores(st, '2026-06-26');
+check('aura power 0 with no streak', a0.power, 0);
+check('aura magnetism in [0,100]', a0.magnetism >= 0 && a0.magnetism <= 100, true);
+// seed a clean week -> power climbs, stage advances, agenda fills
+for (var p3 = 0; p3 < 8; p3++) { var dp = U.addDays('2026-06-08', p3); S.saveLog(dp, Object.assign(S.blankLog(dp), { clean: true, breathingMin: 20, meditationMin: 10, steps: 10000 })); }
+var a8 = E.auraScores(st, U.addDays('2026-06-08', 7));
+check('aura power > 0 after clean week', a8.power > 0, true);
+check('stage after 8-day streak = The Clearing', E.stageFor(a8.streak.current).current.name, 'The Clearing');
+var ps3 = E.performanceSummary(st, U.addDays('2026-06-08', 7));
+check('perf clean rate 100 after clean week', ps3.cleanRatePct, 100);
+check('perf totalChi > 0', ps3.totalChi > 0, true);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

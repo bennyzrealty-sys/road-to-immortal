@@ -221,6 +221,61 @@ nav.tabs button.on { color:var(--gold-soft); text-shadow:0 0 12px rgba(214,175,7
 .cmp .cmp-range { position:absolute; bottom:8px; left:8px; width:calc(100% - 16px); accent-color:var(--gold); }
 .pthumb { height:64px; border-radius:8px; margin-right:6px; object-fit:cover; display:inline-block; vertical-align:middle; }
 
+/* =====================================================================
+   Increment 3 — The Ascendant (coach · power · stages · signals)
+   ===================================================================== */
+/* proactive coach (Today) */
+.coach { border-color:rgba(98,216,255,0.22); }
+.coach-head { display:flex; align-items:center; gap:12px; }
+.cring { position:relative; width:56px; height:56px; flex:0 0 auto; }
+.cring-v { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:15px; color:var(--ink); font-weight:600; }
+.cring-v span { font-size:9px; color:var(--ink-faint); margin-left:1px; }
+.coach-primary { margin-top:12px; padding:12px; border-radius:14px; background:rgba(98,216,255,0.07); border:1px solid rgba(98,216,255,0.2); }
+.coach-primary .cp-q { font-size:15px; color:var(--ink); margin-bottom:10px; line-height:1.4; }
+.cp-ctrls { display:flex; gap:8px; flex-wrap:wrap; }
+.coach-list { margin-top:10px; display:flex; flex-direction:column; }
+.coach-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none;
+  border-top:1px solid rgba(255,255,255,0.05); padding:11px 2px; color:var(--ink-dim); cursor:pointer; font-size:14px; font-family:inherit; }
+.coach-item .ci-dot { width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.18); flex:0 0 auto; }
+.coach-item.now .ci-dot { background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+.coach-item .ci-l { flex:1; }
+.coach-item .ci-now { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--cyan); }
+
+/* Immortal Power */
+.power-wrap { display:flex; justify-content:center; margin:6px 0 2px; }
+.pbody { width:130px; height:auto; filter:drop-shadow(0 0 16px rgba(98,216,255,0.35)); }
+.pnode-on { animation:pnodepulse 2.6s ease-in-out infinite; }
+@keyframes pnodepulse { 0%,100%{ opacity:0.85; } 50%{ opacity:1; } }
+.power-pct { margin:4px 0 2px; }
+.power-pct b { font-size:42px; color:var(--index); text-shadow:0 0 22px rgba(255,206,106,0.5); }
+.power-pct span { font-size:12px; color:var(--ink-faint); letter-spacing:1px; margin-left:4px; }
+.gauge { width:min(260px,82%); height:auto; display:block; margin:6px auto 0; }
+.stand { display:flex; justify-content:space-between; gap:10px; }
+.stand .st { flex:1; text-align:center; }
+.stand .st b { font-size:21px; } .stand .st span { display:block; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:1px; margin-top:2px; }
+.trend.up { color:var(--good); } .trend.down { color:var(--bad); } .trend.flat { color:var(--ink-faint); }
+
+/* stage ladder */
+.pstage { padding:12px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); margin:10px 0; }
+.pstage.cur { border-color:rgba(214,175,78,0.55); background:linear-gradient(180deg,rgba(214,175,78,0.1),transparent); }
+.pstage.locked { opacity:0.6; }
+.ps-head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.ps-n { font-size:16px; color:var(--gold-soft); }
+.pstage.locked .ps-n { color:var(--ink-dim); }
+.ps-meta { font-size:10px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:1px; white-space:nowrap; }
+.ps-body { margin:6px 0 0; line-height:1.5; }
+.cues { margin:8px 0 0; padding-left:18px; }
+.cues li { font-size:13px; color:var(--ink-dim); line-height:1.5; margin:4px 0; }
+
+/* signals field codex */
+.signal { padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.07); }
+.signal:last-child { border-bottom:none; }
+.signal h4 { margin:0 0 8px; color:var(--cyan); letter-spacing:.5px; font-size:16px; }
+.sig-row { display:flex; gap:10px; margin:6px 0; }
+.sig-k { flex:0 0 86px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-faint); padding-top:2px; }
+.sig-row p { margin:0; font-size:14px; line-height:1.55; color:var(--ink-dim); }
+.sig-row.carry p { color:var(--ink); }
+
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
   .breath.run { animation:none; }

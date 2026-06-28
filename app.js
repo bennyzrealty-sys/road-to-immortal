@@ -323,6 +323,122 @@
     };
   }
 
+  /* =================== INCREMENT 3 VISUAL HELPERS =================== */
+  // small completion ring (day-progress)
+  function miniRing(pct) {
+    var R = 22, C = 2 * Math.PI * R, off = C * (1 - pct / 100);
+    return '<div class="cring"><svg viewBox="0 0 56 56" width="56" height="56">' +
+      '<circle cx="28" cy="28" r="' + R + '" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>' +
+      '<circle cx="28" cy="28" r="' + R + '" fill="none" stroke="url(#cgrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 28 28)"/>' +
+      '<defs><linearGradient id="cgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5be0a0"/><stop offset="1" stop-color="#62d8ff"/></linearGradient></defs></svg>' +
+      '<div class="cring-v">' + pct + '<span>%</span></div></div>';
+  }
+  // the charging human body. Fill rises feet->head with power %.
+  var FIG_SHAPES =
+    '<circle cx="60" cy="22" r="15"/>' +
+    '<rect x="54" y="33" width="12" height="9" rx="3"/>' +
+    '<rect x="40" y="40" width="40" height="64" rx="16"/>' +
+    '<rect x="28" y="44" width="13" height="56" rx="6"/>' +
+    '<rect x="79" y="44" width="13" height="56" rx="6"/>' +
+    '<rect x="45" y="98" width="14" height="96" rx="7"/>' +
+    '<rect x="61" y="98" width="14" height="96" rx="7"/>';
+  function powerBody(pct) {
+    var top = 7, bottom = 194, fillTop = bottom - (pct / 100) * (bottom - top);
+    var nodes = [150, 128, 106, 86, 66, 46, 28];
+    var nodeEls = nodes.map(function (y) {
+      var on = y >= fillTop;
+      return '<circle cx="60" cy="' + y + '" r="' + (on ? 3.2 : 2.4) + '" fill="' + (on ? '#ffe7a3' : 'rgba(255,255,255,0.18)') + '"' + (on ? ' filter="url(#pglow)" class="pnode-on"' : '') + '/>';
+    }).join('');
+    var surface = pct > 1 ? '<g clip-path="url(#bclip)"><rect x="0" y="' + (fillTop - 1.5).toFixed(1) + '" width="120" height="3" fill="#ffffff" opacity="0.55"/></g>' : '';
+    return '<svg class="pbody" viewBox="0 0 120 200" role="img" aria-label="Body charge ' + pct + '%">' +
+      '<defs><clipPath id="bclip">' + FIG_SHAPES + '</clipPath>' +
+      '<linearGradient id="pgrad" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#1d6e8f"/><stop offset="0.55" stop-color="#62d8ff"/><stop offset="1" stop-color="#ffe7a3"/></linearGradient>' +
+      '<filter id="pglow"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>' +
+      '<g fill="rgba(255,255,255,0.05)" stroke="rgba(98,216,255,0.32)" stroke-width="1.2">' + FIG_SHAPES + '</g>' +
+      '<g clip-path="url(#bclip)"><rect x="0" y="' + fillTop.toFixed(1) + '" width="120" height="' + (bottom - fillTop).toFixed(1) + '" fill="url(#pgrad)" opacity="0.92"/></g>' +
+      surface + nodeEls + '</svg>';
+  }
+  // semicircular magnetism gauge
+  function magnetGauge(pct) {
+    var len = Math.PI * 80, off = len * (1 - pct / 100);
+    return '<svg class="gauge" viewBox="0 0 200 120">' +
+      '<defs><linearGradient id="mgrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9a6bff"/><stop offset="1" stop-color="#ff7aa8"/></linearGradient></defs>' +
+      '<path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="14" stroke-linecap="round"/>' +
+      '<path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="url(#mgrad)" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + len.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>' +
+      '<text x="100" y="90" text-anchor="middle" font-size="36" fill="#ffd9e6">' + pct + '</text>' +
+      '<text x="100" y="111" text-anchor="middle" font-size="10" fill="#9aa0c7" letter-spacing="2">MAGNETISM</text></svg>';
+  }
+
+  /* =================== PROACTIVE COACH (Today) =================== */
+  function mealLabelFor(k) { var o = CFG.nutrition.mealOrder; for (var i = 0; i < o.length; i++) if (o[i].key === k) return o[i].label; return 'meal'; }
+  function cpBtn(act, label, cls, mk) { return '<button class="btn sm ' + (cls || '') + '" data-cp="' + act + '"' + (mk ? ' data-mk="' + mk + '"' : '') + '>' + esc(label) + '</button>'; }
+  function coachPrimary(ag) {
+    var p = ag.primary; if (!p) return '';
+    var q = p.label, ctrls = '';
+    switch (p.kind) {
+      case 'daytype': q = 'Is today a shift day or a rest day?'; ctrls = cpBtn('shift', 'Shift day', 'gold') + cpBtn('rest', 'Rest day', ''); break;
+      case 'plan': q = 'Pick today’s plan so meals & protein can track.'; ctrls = cpBtn('go-nutrition', 'Choose plan', 'gold'); break;
+      case 'meal': var ml = mealLabelFor(p.mealKey); q = 'Had your ' + ml.toLowerCase() + ' yet? Log what you had.'; ctrls = cpBtn('go-nutrition', 'Log ' + ml.toLowerCase(), 'gold'); break;
+      case 'clean': q = 'Did you hold the line today?'; ctrls = cpBtn('held', 'Held 🛡', 'gold') + cpBtn('slip', 'Slipped', ''); break;
+      case 'breath': q = 'No energy breathing logged yet today.'; ctrls = cpBtn('breath', 'Breathe +5', 'cyan'); break;
+      case 'med': q = 'A few minutes of stillness?'; ctrls = cpBtn('med', 'Meditate +5', 'cyan'); break;
+      case 'move': q = 'Move the body — steps or cardio.'; ctrls = cpBtn('steps', '+1,000 steps', 'cyan'); break;
+      case 'mood': q = 'How’s the inner weather today?'; ctrls = cpBtn('go-log', 'Log mood', ''); break;
+      case 'targets': q = 'A few of today’s targets are still open ↓'; ctrls = ''; break;
+    }
+    return '<div class="coach-primary"><div class="cp-q">' + esc(q) + '</div>' + (ctrls ? '<div class="cp-ctrls">' + ctrls + '</div>' : '') + '</div>';
+  }
+  function coachCard(snap) {
+    var hour = new Date().getHours();
+    var ag = E.dailyAgenda(snap.settings, today(), hour);
+    var ring = miniRing(ag.completionPct);
+    var pend = ag.items.filter(function (it) { return !it.done && !it.blocked && (!ag.primary || it.id !== ag.primary.id); });
+    pend.sort(function (a, b) { return (a.timely ? 0 : 1) - (b.timely ? 0 : 1); });
+    var list = pend.slice(0, 6).map(function (it) {
+      return '<button class="coach-item' + (it.timely ? ' now' : '') + '" data-ci="' + it.kind + '" data-mk="' + (it.mealKey || '') + '">' +
+        '<span class="ci-dot"></span><span class="ci-l">' + esc(it.label) + '</span>' + (it.timely ? '<span class="ci-now">now</span>' : '') + '</button>';
+    }).join('');
+    var blockedPlan = ag.items.some(function (it) { return it.kind === 'meal' && it.blocked; });
+    var planHint = (blockedPlan && pend.every(function (it) { return it.kind !== 'meal'; })) ?
+      '<div class="tiny faint" style="margin-top:8px">Pick a day-type &amp; plan to unlock meal logging.</div>' : '';
+    var allDone = ag.pendingCount === 0;
+    return '<div class="card coach">' +
+      '<div class="coach-head"><div class="grow"><div class="day-num">' + esc(ag.greet) + ' · Day ' + snap.day + '</div>' +
+        '<div class="tiny muted">' + esc(ag.line) + '</div></div>' + ring + '</div>' +
+      (allDone ?
+        '<div class="flag info" style="margin:12px 0 0">✓ Everything timely is logged. The line holds — rest in it.</div>' :
+        coachPrimary(ag) + (list ? '<div class="coach-list">' + list + '</div>' : '') + planHint) +
+    '</div>';
+  }
+  function wireCoach() {
+    var d = today();
+    appEl.querySelectorAll('[data-cp]').forEach(function (b) {
+      b.onclick = function () {
+        var a = b.getAttribute('data-cp');
+        if (a === 'shift' || a === 'rest') { var nn = S.getLog(d).nutrition || {}; nn.dayType = a; nn.templateId = null; S.patchLog(d, { nutrition: nn }); state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'held') { S.patchLog(d, { clean: true }); toast('Held. The line holds.'); render(); return; }
+        if (a === 'slip') { S.patchLog(d, { clean: false }); toast('Logged honestly. Begin again.'); render(); return; }
+        if (a === 'breath') { quickAction('breath', b); return; }
+        if (a === 'med') { quickAction('med', b); return; }
+        if (a === 'steps') { quickAction('steps', b); return; }
+        if (a === 'go-nutrition') { state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'go-log') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
+      };
+    });
+    appEl.querySelectorAll('[data-ci]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.getAttribute('data-ci');
+        if (k === 'daytype' || k === 'plan' || k === 'meal') { state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
+        if (k === 'clean') { var lg = S.getLog(d); S.patchLog(d, { clean: lg.clean === true ? false : true }); render(); return; }
+        if (k === 'breath') { quickAction('breath', b); return; }
+        if (k === 'med') { quickAction('med', b); return; }
+        if (k === 'move') { quickAction('steps', b); return; }
+        if (k === 'mood') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
+        if (k === 'targets') { window.scrollTo(0, document.body.scrollHeight); return; }
+      };
+    });
+  }
+
   /* =================== SCREENS =================== */
   function metersBlock(m) {
     function bar(cls, name, color, val) {
@@ -360,7 +476,7 @@
       '<button class="btn sm gold" data-go="settings">Export</button></div></div>' : '';
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner +
+      header('today') + backupBanner + coachCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -382,8 +498,9 @@
       '<div class="card"><div class="codex-quote" style="font-size:17px">' + esc(fill(dailyPick(CFG.quotes.daily), snap)) + '</div></div>' +
       '<div class="btn-grid"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
     '</div>';
-    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
+    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach();
 
     // wire
     appEl.querySelectorAll('[data-target]').forEach(function (el) {
@@ -1065,19 +1182,104 @@
   function screenCodex() {
     var snap = E.snapshot(today());
     var mode = state._codexMode || 'daily';
-    var setArr = mode === 'recovery' ? CFG.quotes.recovery : mode === 'danger' ? CFG.quotes.dangerWindow : CFG.quotes.daily;
+    var setArr = mode === 'recovery' ? CFG.quotes.recovery : mode === 'danger' ? CFG.quotes.dangerWindow : mode === 'dark' ? CFG.quotes.dark : CFG.quotes.daily;
     var quote = mode === 'daily' ? fill(dailyPick(setArr), snap) : dailyPick(setArr);
     var principles = CFG.quotes.codex.map(function (p) { return '<div class="principle"><h4>' + esc(p.title) + '</h4><p>' + esc(p.body) + '</p></div>'; }).join('');
     var html = '<div class="screen">' + header('Codex') +
       '<div class="card"><div class="seg" style="justify-content:center;margin-bottom:10px">' +
         '<button data-cx="daily" class="' + (mode === 'daily' ? 'on' : '') + '">Daily</button>' +
         '<button data-cx="recovery" class="' + (mode === 'recovery' ? 'on' : '') + '">Recovery</button>' +
-        '<button data-cx="danger" class="' + (mode === 'danger' ? 'on' : '') + '">Danger hour</button></div>' +
-        '<div class="codex-quote">' + esc(quote) + '</div></div>' +
+        '<button data-cx="danger" class="' + (mode === 'danger' ? 'on' : '') + '">Danger hour</button>' +
+        '<button data-cx="dark" class="' + (mode === 'dark' ? 'on' : '') + '">Dark</button></div>' +
+        '<div class="codex-quote">' + esc(quote) + '</div>' +
+        (mode === 'dark' ? '<div class="tiny faint center" style="margin-top:8px">Power <b>over the self</b>, not over others. Turned on people, these become a cage — for you.</div>' : '') +
+      '</div>' +
       '<div class="card"><h3>Presence &amp; self-mastery</h3><div class="tiny faint" style="margin:-4px 0 8px">Becoming magnetic through self-mastery — never tactics on people.</div>' + principles + '</div>' +
+      '<div class="btn-grid"><button class="btn ghost" data-go="signals">👁 Signals (field codex)</button><button class="btn ghost" data-go="power">⚡ Immortal Power</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
     appEl.querySelectorAll('[data-cx]').forEach(function (b) { b.onclick = function () { state._codexMode = b.getAttribute('data-cx'); render(); }; });
+  }
+
+  /* ---- IMMORTAL POWER (increment 3) ---- */
+  function screenPower() {
+    var s = S.getSettings(), asOf = today(), snap = E.snapshot(asOf);
+    var aura = E.auraScores(s, asOf);
+    var stage = E.stageFor(aura.streak.current);
+    var longestStage = E.stageFor(aura.streak.longest);
+    var perf = E.performanceSummary(s, asOf);
+    var m = aura.meters;
+    function bar(name, val, cls) { return '<div class="meter ' + cls + '"><div class="lbl"><span>' + name + '</span><b>' + val + '</b></div><div class="bar"><i data-fill="' + val + '"></i></div></div>'; }
+    function stat(v, l) { return '<div class="st"><b>' + v + '</b><span>' + l + '</span></div>'; }
+    function cuesList(arr) { return '<ul class="cues">' + arr.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>'; }
+    var trendArrow = perf.indexTrend > 0 ? '<span class="trend up">▲</span>' : perf.indexTrend < 0 ? '<span class="trend down">▼</span>' : '<span class="trend flat">▬</span>';
+
+    var ladder = CFG.stages.map(function (st, i) {
+      var reached = aura.streak.current >= st.reach, cur = i === stage.index;
+      return '<div class="pstage' + (cur ? ' cur' : '') + (reached ? ' done' : ' locked') + '">' +
+        '<div class="ps-head"><span class="ps-n">' + esc(st.name) + '</span><span class="ps-meta">' + (reached ? (cur ? 'you are here' : '✓ held') : 'streak ' + st.reach + '+') + ' · ' + st.power + '</span></div>' +
+        '<div class="ps-body tiny muted">' + esc(st.body) + '</div>' + cuesList(st.cues) + '</div>';
+    }).join('');
+
+    var html = '<div class="screen">' + header('Immortal Power') +
+      '<div class="card today-hero">' +
+        '<div class="day-num">Immortal Power</div>' +
+        '<div class="power-wrap">' + powerBody(aura.power) + '</div>' +
+        '<div class="power-pct"><b>' + aura.power + '</b><span>% charged</span></div>' +
+        '<div class="rank-sub">Stage · <b style="color:var(--gold-soft)">' + esc(stage.current.name) + '</b>' + (stage.next ? ' · ' + stage.daysToNext + ' clean days to ' + esc(stage.next.name) : ' · the summit') + '</div>' +
+        '<div class="tiny faint" style="margin-top:10px">Charge is mostly the <b>permanence of your streak</b>. A relapse genuinely discharges it; a kept streak rebuilds it, stage after stage.</div>' +
+      '</div>' +
+      '<div class="card center"><h3>Magnetism / attraction field</h3>' + magnetGauge(aura.magnetism) +
+        '<div class="tiny faint" style="margin-top:2px">This reads <b>your own charge</b> — presence, retention, energy, will — not a promise about anyone else. Read yourself here; read the room in Signals.</div>' +
+        '<button class="btn ghost sm" data-go="signals" style="margin-top:12px">👁 Open the Signals field codex</button>' +
+      '</div>' +
+      '<div class="card"><h3>Energy &amp; attractiveness acquired</h3>' +
+        bar('Chi · energy now', m.chi, 'm-chi') + bar('Vitality · body', m.vitality, 'm-vit') +
+        bar('Willpower · discipline', m.willpower, 'm-will') + bar('Presence · aura', m.presence, 'm-pres') +
+        '<div class="divider"></div><table style="width:100%;font-size:13px">' +
+        '<tr><td class="muted">Lifetime energy banked (Chi)</td><td style="text-align:right"><b>' + perf.totalChi.toLocaleString() + '</b></td></tr>' +
+        '<tr><td class="muted">Streak permanence</td><td style="text-align:right"><b>' + aura.normStreak + '%</b></td></tr>' +
+        '<tr><td class="muted">Current / longest streak</td><td style="text-align:right"><b>' + aura.streak.current + ' / ' + aura.streak.longest + '</b></td></tr>' +
+        '<tr><td class="muted">Streak shields held</td><td style="text-align:right"><b>' + aura.streak.shields + '</b></td></tr>' +
+        '<tr><td class="muted">Immortal Index (today)</td><td style="text-align:right"><b>' + m.index + '</b></td></tr></table>' +
+      '</div>' +
+      '<div class="card"><h3>Your stage now</h3>' +
+        '<div class="rank-badge" style="cursor:default"><span class="nm">' + esc(stage.current.name) + '</span></div>' +
+        '<div class="bar" style="margin-top:12px"><i data-fill="' + stage.progressPct + '" style="background:linear-gradient(90deg,#5a2f9a,#c98bff);box-shadow:0 0 12px #c98bff"></i></div>' +
+        '<div class="tiny faint" style="margin-top:6px">' + (stage.next ? stage.progressPct + '% to ' + esc(stage.next.name) + ' · ' + stage.daysToNext + ' clean days' : 'Highest stage held.') + '</div>' +
+        '<p class="muted" style="line-height:1.55;margin:12px 0 0">' + esc(stage.current.body) + '</p>' +
+        (aura.streak.longest > aura.streak.current ? '<div class="tiny faint" style="margin-top:8px">Highest stage reached: <b>' + esc(longestStage.current.name) + '</b> (longest streak ' + aura.streak.longest + '). A slip lowers the live charge — never what you proved you can do.</div>' : '') +
+      '</div>' +
+      '<div class="card"><h3>What you may notice now</h3>' + cuesList(stage.current.cues) +
+        '<div class="tiny faint">Tendencies, not promises — and your own rising initiative manufactures “signals” by itself. Read them lightly, act respectfully.</div></div>' +
+      '<div class="card"><h3>Overall standing</h3>' +
+        '<div class="stand">' + stat(perf.cleanRatePct == null ? '—' : perf.cleanRatePct + '%', 'clean rate') + stat(perf.currentStreak, 'streak') + stat(perf.longestStreak, 'longest') + '</div>' +
+        '<div class="stand" style="margin-top:12px">' + stat((perf.avgIndex7 == null ? '—' : perf.avgIndex7) + ' ' + trendArrow, '7-day index') + stat(perf.adherencePct == null ? '—' : perf.adherencePct + '%', 'adherence') + stat(perf.relapses, 'relapses') + '</div>' +
+        '<div class="tiny faint" style="margin-top:12px">Day ' + perf.day + ' · ' + perf.answeredDays + ' days logged · ' + perf.cleanDays + ' clean. ' + (perf.indexTrend > 0 ? 'Charge is trending up — keep the shape.' : perf.indexTrend < 0 ? 'Charge dipped this week — the coach on Today shows the quickest wins.' : 'Holding steady.') + '</div>' +
+      '</div>' +
+      '<div class="card"><h3>The stages — what comes, stage after stage</h3>' + ladder + '</div>' +
+      '<div class="card"><div class="tiny faint">These numbers are a mirror of your own logs and streak — not a verdict, and never a claim about how anyone else must respond. Become someone worth meeting; the rest is theirs to decide freely.</div></div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
+  }
+
+  /* ---- SIGNALS — body-language field codex (increment 3) ---- */
+  function screenSignals() {
+    var sig = CFG.signals;
+    var entries = sig.entries.map(function (e) {
+      return '<div class="signal"><h4>' + esc(e.title) + '</h4>' +
+        '<div class="sig-row"><span class="sig-k">Looks like</span><p>' + esc(e.look) + '</p></div>' +
+        '<div class="sig-row"><span class="sig-k">Can mean</span><p>' + esc(e.mean) + '</p></div>' +
+        '<div class="sig-row carry"><span class="sig-k">Carry yourself</span><p>' + esc(e.carry) + '</p></div></div>';
+    }).join('');
+    var html = '<div class="screen">' + header('Signals') +
+      '<div class="card"><div class="flag amber" style="margin:0">⚖ <span><b>Respect &amp; consent first.</b> ' + esc(sig.ethics) + '</span></div></div>' +
+      '<div class="card"><h3>What a normal glance is</h3><p class="muted" style="line-height:1.6;margin:0">' + esc(sig.intro) + '</p></div>' +
+      '<div class="card"><h3>The signals — and what they can mean</h3>' + entries + '</div>' +
+      '<div class="card"><h3>The one rule</h3><p class="muted" style="line-height:1.6;margin:0">' + esc(sig.ethics) + '</p>' +
+        '<button class="btn ghost sm" data-go="power" style="margin-top:12px">⚡ Back to Immortal Power</button></div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
   }
 
   /* ---- SETTINGS / BACKUP ---- */
@@ -1158,7 +1360,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -1168,7 +1370,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });

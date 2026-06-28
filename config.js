@@ -259,6 +259,153 @@
     /* ---- Module B (cloud AI interpreter) — OFF, spec-only placeholder ---- */
     cloudInterpreter: { enabled: false },
 
+    /* =====================================================================
+       INCREMENT 3 — THE ASCENDANT
+       Proactive coaching, the Immortal-Power / attraction visualisation,
+       the stage ladder and the body-language field codex. All tunable;
+       the engine reads these, it never hard-codes them.
+       ===================================================================== */
+
+    /* ---- Coach: time-aware proactive prompts ----
+       Boundaries are LOCAL hours [from, to). The night phase wraps midnight.
+       mealWindows say which meal the app should nudge for around a given hour. */
+    coach: {
+      phases: [
+        { id: 'morning',   from: 5,  to: 11, greet: 'Good morning',  line: 'Set the shape of the day before it sets you.' },
+        { id: 'midday',    from: 11, to: 15, greet: 'Midday',        line: 'Halfway. Fuel it, move it, keep the line.' },
+        { id: 'afternoon', from: 15, to: 18, greet: 'Afternoon',     line: 'The dip hour. A short walk and the breath reset it.' },
+        { id: 'evening',   from: 18, to: 22, greet: 'Evening',       line: 'Close the day clean. Log it honestly while it’s fresh.' },
+        { id: 'night',     from: 22, to: 5,  greet: 'Late',          line: 'The danger hour. Alone + screen + tired is the old trap.' }
+      ],
+      // hour windows [from,to) used to decide which meal to nudge for
+      mealWindows: { B: [5, 10], L: [11, 15], S: [15, 17], T: [16, 20], D: [18, 23] }
+    },
+
+    /* ---- Aura: how the headline "power" + "magnetism" numbers are built ----
+       Both are 0-100. Power leans on the PERMANENCE of the streak (it grows
+       slowly, stage after stage, and a relapse genuinely discharges it).
+       Magnetism leans on Presence. Neither is a promise about other people —
+       both are read as your own charge, derived from your own data. */
+    aura: {
+      powerStreakRefDays: 120,   // clean streak that maxes the "permanence" half
+      chiBankRef: 9000,          // banked lifetime Chi that reads as "full"
+      powerWeights:  { streak: 0.50, index: 0.30, bank: 0.20 },
+      magnetWeights: { presence: 0.40, streak: 0.25, chi: 0.20, willpower: 0.15 }
+    },
+
+    /* ---- Stages: keyed by current CLEAN STREAK (reach = min streak days) ----
+       "body" = what tends to shift INSIDE you at this stage.
+       "cues" = the attraction signals you MAY begin to notice — tendencies,
+       not promises, and heavily confounded by your own rising initiative. */
+    stages: [
+      { reach: 0,   name: 'The Fog',              power: '0–8%',
+        body: 'The old wiring is still loud. Restlessness, scattered focus, the reflex to reach for the screen. Nothing external yet — this stage is entirely inward.',
+        cues: [ 'Expect no signals from others — that is normal, not failure.',
+                'Your only job is the first clean 72 hours. Watch the inside, not the room.' ] },
+      { reach: 3,   name: 'First Spark',          power: '8–18%',
+        body: 'Sleep deepens. Mornings come a little sharper. Brief surges of restless energy you don’t yet know where to put.',
+        cues: [ 'You hold eye contact half a second longer without deciding to.',
+                'You start noticing more than you feel noticed — that order flips later.' ] },
+      { reach: 7,   name: 'The Clearing',         power: '18–32%',
+        body: 'A week held. Mental fog lifts, the voice steadies, the reflexive phone-reach quietens.',
+        cues: [ 'The occasional unprompted second glance.',
+                'People finish their sentence while still looking at you.',
+                'You stop performing nervousness — stillness starts to feel available.' ] },
+      { reach: 14,  name: 'Rising Charge',        power: '32–48%',
+        body: 'Posture opens on its own. Resting tension drops. Eyes read brighter in the mirror.',
+        cues: [ 'Brief held glances become more common.',
+                'Someone re-enters your path without an obvious errand.',
+                'Group laughter angles a little toward you. (Noticing ≠ proof — keep it honest.)' ] },
+      { reach: 30,  name: 'Magnetic Field',       power: '48–66%',
+        body: 'A steadier baseline energy. Calmer under pressure. Slower speech starts to feel natural rather than forced.',
+        cues: [ 'Double-takes — the look, the look away, the look back.',
+                'Proximity: someone drifts nearer with no task to do there.',
+                'Preening near you — a hand to the hair, a collar straightened, posture adjusted.' ] },
+      { reach: 60,  name: 'The Presence',         power: '66–80%',
+        body: 'Stillness reads as depth. The hunger for validation quietens — you stop auditioning.',
+        cues: [ 'Sustained eye contact held across a room.',
+                'The look back after passing — head and half-turn, into your line of sight.',
+                'Conversations soften and slow in your orbit.' ] },
+      { reach: 90,  name: 'Gravity',              power: '80–92%',
+        body: 'Rooted. Largely unbothered. The conserved energy feels like a current you simply carry.',
+        cues: [ 'People orient toward you unprompted — feet and torso turn your way.',
+                'You are approached rather than always approaching.',
+                'Silences feel comfortable instead of needing to be filled.' ] },
+      { reach: 180, name: 'The Immortal Current', power: '92–100%',
+        body: 'The self you were building is now just your face. Calm precedes you into a room.',
+        cues: [ 'Presence registers before you speak.',
+                'You read a situation early and respond instead of reacting.',
+                'Attention arrives quietly and you no longer chase it — that is the whole point.' ] }
+    ],
+
+    /* ---- Signals: the body-language field codex ----
+       Framed as AWARENESS and calibration, never as tactics. Signals are
+       probabilistic, context-bound, and easy to misread. Politeness is not
+       attraction; avoidance is not a challenge. Respect and consent first. */
+    signals: {
+      intro: 'A normal glance is brief and incidental — eyes pass over you the way they pass over a lamp or a doorway, then move on, with no second visit and no change in what the person was doing. Most looks mean nothing. What follows are patterns that, repeated and in context, sometimes mean more. Read them to calibrate — never to corner.',
+      // each: title, look (what it looks like), mean (what it can mean, with the ambiguity), carry (how to respond)
+      entries: [
+        { title: 'The baseline glance',
+          look: 'A short look that lands and leaves. No return, no shift in posture, no change in their activity.',
+          mean: 'Almost always nothing — ambient awareness of another person in the space. Logging these stops you over-reading the rare real signal.',
+          carry: 'Notice it, file it as neutral, carry on. Over-reading a baseline glance is the most common mistake.' },
+        { title: 'The held glance',
+          look: 'Eye contact that lasts a beat longer than the room’s rhythm — half a second past comfortable.',
+          mean: 'Interest, curiosity, or simply that you stood out somehow. One held glance is weak evidence; a pattern of them is stronger.',
+          carry: 'A calm, brief smile and then look away first. Don’t escalate a single glance into a story.' },
+        { title: 'The double-take',
+          look: 'A look, then away, then a second look back — the head (and often half the upper body) turning to bring you back into view after you’ve entered their field.',
+          mean: 'The second look is the informative one. The eyes returning of their own accord, especially with a half-turn of the torso, suggests genuine attention rather than reflex. Still: it can be recognition, or you reminded them of someone.',
+          carry: 'Meet it once, warmly and briefly. If it repeats and the setting allows, a light, low-pressure opening is reasonable. One returned glance is not an invitation to pursue.' },
+        { title: 'The look back after passing',
+          look: 'After you’ve already walked past, a glance back over the shoulder.',
+          mean: 'Looking back once you’re no longer in their natural sightline takes a small deliberate act — it weakly suggests you held some interest. It is still just one data point.',
+          carry: 'If you catch it, a brief acknowledging look is plenty. Don’t turn it into a chase down the street — that reads as pressure, not confidence.' },
+        { title: 'Proximity without an errand',
+          look: 'Someone drifts into your area and lingers with no clear reason to be exactly there.',
+          mean: 'Choosing to be near you can signal openness to contact. Or the coffee really is over there. Context decides.',
+          carry: 'Stay relaxed and open in posture. Let them close the last of the distance sometimes; presence is patient.' },
+        { title: 'Preening and self-grooming',
+          look: 'A hand smoothing hair, a collar or sleeve adjusted, posture straightening — clustered around when you appear or look over.',
+          mean: 'Often an unconscious tidy-up in the presence of someone they’re aware of. Reliable only as a cluster, near a trigger — not a lone gesture.',
+          carry: 'Read it as warmth, not a green light by itself. Combine it with eye contact and orientation before you read much into it.' },
+        { title: 'Feet and torso orientation',
+          look: 'Where the toes and chest point. In a group, a subtle turn of the whole front toward you.',
+          mean: 'We point our bodies at what holds our attention. It’s harder to fake than a face, which makes it one of the more honest tells.',
+          carry: 'If the body turns toward you over time, attention is real. If it stays angled away while the face is polite, take the body’s answer.' },
+        { title: 'Mirroring',
+          look: 'They unconsciously echo your posture, pace, or gestures — you lean, they lean; you slow down, they slow.',
+          mean: 'Mirroring tends to track rapport and comfort. It builds over a conversation rather than appearing instantly.',
+          carry: 'A good sign the exchange is landing. Keep your own pace calm and grounded — they’re calibrating to you.' },
+        { title: 'Self-soothing touch',
+          look: 'Light touches to the neck, collarbone, wrist, or playing with a necklace — around you or while talking to you.',
+          mean: 'Can mark interest and a little nervous energy. Can equally just be nerves, habit, or a cold room. Ambiguous on its own.',
+          carry: 'Lower the pressure: warmth, ease, no intensity. If it’s nervous-interest, calm is what lets it open; if it’s discomfort, calm respects it.' },
+        { title: 'The watcher at the edge',
+          look: 'Someone keeps to the periphery of your view — half-hidden behind a group, a shelf, a phone — and looks over when they think you can’t see, then breaks away if you turn.',
+          mean: 'This one is genuinely two-sided. It can be shy interest that hasn’t found its courage — OR someone keeping distance on purpose because they want space. Both look almost identical from outside.',
+          carry: 'Do NOT seek them out, follow, or try to “catch” them watching. Stay open and easy where you are and let them choose to come into the open. If they keep withdrawing, that is an answer — respect it completely. Wanting to observe from a distance is not consent to be approached.' },
+        { title: 'The too-studied ignore',
+          look: 'A pointed, almost effortful not-looking — aware of exactly where you are while making a show of not noticing.',
+          mean: 'Sometimes self-consciousness around someone they’ve clocked. Sometimes simply someone who wants to be left alone and is signalling it. Don’t flatter yourself into the first reading.',
+          carry: 'Give space. If there’s real interest it will show in a softer, clearer signal later. Manufactured “tension” is not your job to resolve.' },
+        { title: 'Reappearing in your orbit',
+          look: 'You cross paths more than chance would explain — the same aisle, the same corner of the room, again.',
+          mean: 'Repeated proximity can be a quiet way of creating chances to interact. It can also be a small shared space and pure coincidence.',
+          carry: 'If it’s mutual and easy, a relaxed hello is fine. Never engineer the reverse — designing “coincidences” around someone is exactly the line not to cross.' },
+        { title: 'Eye contact, smile, look down',
+          look: 'Eyes meet, a small genuine smile, then the gaze drops downward (not away to the side).',
+          mean: 'The downward break in particular is often read as warm and a little shy rather than dismissive. One of the more encouraging single clusters — still context-bound.',
+          carry: 'Return the smile, hold your calm, and let a natural opening arrive. Warmth answered with warmth, no rush.' },
+        { title: 'Voice and laughter in a group',
+          look: 'In a group their voice brightens, they laugh a touch more, or angle their best lines toward you.',
+          mean: 'Bidding for your attention within the safety of the group. Or they’re just an animated person. Watch whether it’s aimed or ambient.',
+          carry: 'Acknowledge it without making them the centre of a spotlight they didn’t ask for. Easy, inclusive, unhurried.' }
+      ],
+      ethics: 'These are tendencies, not certainties — and your own rising confidence makes you initiate more, which manufactures “signals” all by itself (a confound, the same one this app flags everywhere). Read people to be considerate and well-calibrated, never to pressure, follow, surveil, or manufacture situations. A “no”, a turn away, or a withdrawal is a complete answer. The aim of every stage in this app is to become someone worth meeting — not to extract a reaction from anyone.'
+    },
+
     /* ================= QUOTES & CODEX =================
        ALL original / paraphrased. No copyrighted passages.
        {day},{streak},{rank},{next},{toNext},{index} are filled from
@@ -312,6 +459,29 @@
         'You are {index}% charged today. One night does not get to spend all of it.',
         'You climbed to {rank}. The fall from here is longer than it feels.',
         '{toNext} days to {next}. That close. Breathe and keep it.'
+      ],
+      // Dark codex — power OVER THE SELF, not over others. Original lines,
+      // dark-academia flavour: non-neediness, frame, restraint, the quiet
+      // edge of a man who wants nothing from the room. Never deception.
+      dark: [
+        'The man who needs nothing from the room is the one who ends up owning it.',
+        'Silence is the loudest frame. Say less, mean more, and let them lean in.',
+        'They feel your restraint before they can explain it — and restraint reads as power.',
+        'Do not perform your value. Withhold it, and watch them come looking for what you hid.',
+        'The one who can wait has already won. Urgency is the tell of the weaker hand.',
+        'A want you can keep unspoken is a want you still control.',
+        'Be unreadable, not cold. Mystery is a door left ajar — never a wall.',
+        'Reaction is a leash. Master the pause and no one else gets to hold it.',
+        'Real scarcity is not a trick you play; it is a life so full you are genuinely hard to reach.',
+        'The calm man is assumed to know something. Let them keep assuming.',
+        'Never chase. Become the thing that is chased, then forget you wanted it.',
+        'Your attention is currency. Spend it like a king, not a beggar.',
+        'What you have stopped needing can no longer be used against you.',
+        'Composure under provocation is the rarest flex. Show only what you choose to show.',
+        'Let them wonder. Certainty handed out for free is value thrown in the gutter.',
+        'Detach from the outcome and the outcome stops being able to move you.',
+        'The deepest power move is to be genuinely fine if it goes nowhere.',
+        'Hold your standard quietly and the room re-calibrates to you, not you to it.'
       ],
       // Codex: presence & self-mastery — original, dark-academia.
       // Framed as becoming magnetic THROUGH self-mastery, never tactics.
