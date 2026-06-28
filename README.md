@@ -207,6 +207,40 @@ gained five pure functions (`coachPhase`, `dailyAgenda`, `auraScores`, `stageFor
 `performanceSummary`) covered by **16 new self-test assertions** (`node tools/selftest.js`
 → **85 passed**). Service-worker cache bumped to **v7**.
 
+## Increment 3.1 — Daily Trial + shareable sigil card
+
+**Daily Trial** (`config.trials`, `engine.js` `dailyTrial`/`trialStanding`, `app.js` `trialCard`)
+- One rotating challenge per local day, picked **deterministically** (same seeding as the
+  daily quote). Some are **auto-detected** from the day's log (10k steps, 30 min breathing,
+  20 min meditation/cardio, 7h sleep, protein hit, all targets); some are **self-attested**
+  (cold shower, morning sunlight, 60-min no-phone, read the Codex, open posture).
+- A "Today's Trial" card sits under the coach on **Today**. Auto trials flip to **✓ Met**
+  live from your log (with a `have / need` hint); manual trials get a **Mark done** toggle that
+  celebrates on completion. The card shows a **trials-won tally + 🔥 trial-streak**.
+- Manual completion stores `{ id, done }` in the day's log; the engine only counts it when the
+  stored id matches that day's deterministic trial, so a stale tick can't carry across midnight.
+- The Trial has its **own** tally — it never touches the derived meters (derivation stays pure).
+
+**Shareable sigil card** (`engine.js` `shareCardData`, `app.js` `renderShareCard`/`openShareCard`)
+- A **"Share your charge"** button on Immortal Power renders a 1080×1350 **canvas** card —
+  the charging-body silhouette + Day / rank / clean-streak / Immortal-Power % / stage / Index —
+  in the app's obsidian-and-gold theme, then lets you **Download** a PNG (or **Share** via the
+  native share sheet where `navigator.canShare` supports files; it auto-hides otherwise).
+- Fully **offline**: the existing `powerBody()` SVG is serialised to a Blob and rasterised onto
+  the canvas in-page (with a gold-ring fallback); only system fonts are used; nothing is
+  uploaded — it's a manual, user-initiated image, matching the no-network ethos.
+
+Engine gained four pure functions (`trialIndexFor`, `dailyTrial`, `trialStanding`,
+`shareCardData`) with **22 new self-test assertions** (`node tools/selftest.js` → **107 passed**).
+No new files (logic folded into existing modules); service-worker cache bumped to **v8**.
+
+> **Parked (asked, deferred): a step / distance / calorie tracker.** A *website* can't count
+> steps in the background — only a *native app* can read the phone's hardware step sensor (which
+> is why a dedicated "Step Counter" app works all day). When revisited, the two paths are a pure-PWA
+> "movement" view (enter the day's total from your step app → auto distance from height + calories
+> from weight, plus an in-app accelerometer walk-session) **or** repackaging as a native wrapper
+> (Capacitor/TWA) for true background counting. See the plan file for the full spec.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

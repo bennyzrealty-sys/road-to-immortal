@@ -406,6 +406,29 @@
       ethics: 'These are tendencies, not certainties — and your own rising confidence makes you initiate more, which manufactures “signals” all by itself (a confound, the same one this app flags everywhere). Read people to be considerate and well-calibrated, never to pressure, follow, surveil, or manufacture situations. A “no”, a turn away, or a withdrawal is a complete answer. The aim of every stage in this app is to become someone worth meeting — not to extract a reaction from anyone.'
     },
 
+    /* ---- Daily Trial: one rotating challenge per local day ----
+       `auto` trials are detected from the daily log via `metric` (+ optional
+       `need`); `manual` trials are self-attested and stored in log.trial.
+       The deterministic day-pick indexes into this array, so DO NOT reorder
+       casually — it reshuffles which trial falls on which day. `hint` uses a
+       {have} placeholder filled live by the UI for auto-trial progress. */
+    trials: [
+      // ---- auto-detected from the existing daily log ----
+      { id: 'steps10k',   title: 'Ten Thousand',     auto: true, metric: 'steps',         need: 10000, desc: 'Walk 10,000 steps today.', hint: '{have} / 10,000 steps' },
+      { id: 'breath30',   title: 'The Long Breath',  auto: true, metric: 'breathingMin',  need: 30,    desc: '30 minutes of energy / testicle breathing.', hint: '{have} / 30 min breathing' },
+      { id: 'meditate20', title: 'Still Water',      auto: true, metric: 'meditationMin', need: 20,    desc: 'Meditate 20 minutes.', hint: '{have} / 20 min meditation' },
+      { id: 'cardio20',   title: 'Move the Engine',  auto: true, metric: 'cardioMin',     need: 20,    desc: '20 minutes of cardio — get the blood moving.', hint: '{have} / 20 cardio min' },
+      { id: 'protein',    title: 'Build the Temple', auto: true, metric: 'proteinHit',                 desc: 'Hit your protein target for the day.', hint: 'Log meals until the protein band is reached' },
+      { id: 'allTargets', title: 'Full Slate',       auto: true, metric: 'allTargets',                 desc: 'Complete every one of today’s targets.', hint: 'Finish all targets on Today' },
+      { id: 'sleep7',     title: 'The Deep Well',    auto: true, metric: 'sleepHrs',      need: 7,     desc: 'Log 7+ hours of sleep.', hint: 'Log sleep hours in the full log' },
+      // ---- manual / self-attested ----
+      { id: 'coldShower', title: 'The Cold Forge',   auto: false, desc: 'Take a cold shower — 30s minimum at the end.' },
+      { id: 'sunlight',   title: 'First Light',      auto: false, desc: 'Get daylight on your face within 30 minutes of waking.' },
+      { id: 'noPhone60',  title: 'The Quiet Hour',   auto: false, desc: '60 minutes with no phone — fully present.' },
+      { id: 'read3',      title: 'Read the Codex',   auto: false, desc: 'Read three lines from the Codex and sit with one.' },
+      { id: 'posture',    title: 'The Open Frame',   auto: false, desc: 'Hold open, grounded posture through one full conversation.' }
+    ],
+
     /* ================= QUOTES & CODEX =================
        ALL original / paraphrased. No copyrighted passages.
        {day},{streak},{rank},{next},{toNext},{index} are filled from

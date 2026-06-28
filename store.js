@@ -81,7 +81,8 @@
       mood: null,             // 1-5
       todayTargetsDone: [],   // booleans matching settings.dailyTargets
       notes: '',
-      study: null             // section 6 object
+      study: null,            // section 6 object
+      trial: null             // { id, done } once a manual daily-trial is attempted (id guards stale days)
     };
   }
   function getLogs() { return read(K.logs, {}); }

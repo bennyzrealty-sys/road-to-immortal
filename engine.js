@@ -451,6 +451,60 @@
     return { index: idx, current: cur, next: next, progressPct: U.round(progressPct, 0), daysToNext: next ? Math.max(0, next.reach - streak) : 0 };
   }
 
+  /* ---------- Daily Trial (rotating challenge; own tally, never touches meters) ----------
+     Deterministic per-day pick (same seeding as app.js dailyPick) keyed on the
+     passed date so it can be asserted for any day. Auto trials are detected from
+     the day's log; manual trials read log.trial.done only when the stored id
+     matches the day's trial (guards a stale completion across midnight). */
+  function trialIndexFor(asOf) {
+    var n = CFG.trials.length, seed = U.daysBetween('2020-01-01', asOf);
+    return ((seed % n) + n) % n;
+  }
+  function trialMet(trial, log, settings) {        // pure; reads only
+    switch (trial.metric) {
+      case 'steps':         return num(log.steps) >= trial.need;
+      case 'breathingMin':  return num(log.breathingMin) >= trial.need;
+      case 'meditationMin': return num(log.meditationMin) >= trial.need;
+      case 'cardioMin':     return !!(log.cardio && num(log.cardio.minutes) >= trial.need);
+      case 'sleepHrs':      return (log.sleepHrs != null && isFinite(+log.sleepHrs) && +log.sleepHrs >= trial.need);
+      case 'proteinHit':    return !!nutritionAdherence(log).proteinHit;
+      case 'allTargets':    var t = settings.dailyTargets || CFG.dailyTargets, d = log.todayTargetsDone || [];
+                            return d.length === t.length && d.length > 0 && d.every(function (b) { return b === true; });
+      default: return false;
+    }
+  }
+  function trialDoneFor(trial, log, settings) {
+    return trial.auto ? trialMet(trial, log, settings)
+                      : !!(log.trial && log.trial.id === trial.id && log.trial.done);
+  }
+  function dailyTrial(settings, asOf) {
+    var trial = CFG.trials[trialIndexFor(asOf)], log = S.getLog(asOf);
+    return { trial: trial, done: trialDoneFor(trial, log, settings), auto: !!trial.auto };
+  }
+  function trialStanding(settings, asOf) {
+    var start = settings.startDate;
+    if (U.daysBetween(start, asOf) < 0) return { won: 0, streak: 0 };
+    var span = U.daysBetween(start, asOf), won = 0, streak = 0;
+    for (var i = 0; i <= span; i++) {
+      var date = U.addDays(start, i), trial = CFG.trials[trialIndexFor(date)];
+      if (trialDoneFor(trial, S.getLog(date), settings)) { won++; streak++; }
+      else { streak = 0; }
+    }
+    return { won: won, streak: streak };
+  }
+
+  /* ---------- Shareable progress card: pure data (every value is derived) ---------- */
+  function shareCardData(settings, asOf) {
+    var day = dayNumber(settings, asOf), rank = rankFor(day);
+    var streak = streakAsOf(settings, asOf), aura = auraScores(settings, asOf);
+    var stage = stageFor(streak.current);
+    return {
+      day: day, rank: rank.current ? rank.current.name : '—',
+      cleanStreak: streak.current, power: aura.power, stage: stage.current.name,
+      index: aura.meters.index, displayName: (settings.displayName || '').trim()
+    };
+  }
+
   /* ---------- overall standing / performance summary ---------- */
   function performanceSummary(settings, asOf) {
     var day = dayNumber(settings, asOf);
@@ -511,6 +565,8 @@
     nutritionAdherence: nutritionAdherence, nutritionFlags: nutritionFlags,
     activeTags: activeTags, getTemplate: getTemplate, effectiveMeal: effectiveMeal,
     coachPhase: coachPhase, dailyAgenda: dailyAgenda, auraScores: auraScores,
-    stageFor: stageFor, performanceSummary: performanceSummary
+    stageFor: stageFor, performanceSummary: performanceSummary,
+    trialIndexFor: trialIndexFor, dailyTrial: dailyTrial, trialStanding: trialStanding,
+    shareCardData: shareCardData
   };
 })(typeof window !== 'undefined' ? window : this);

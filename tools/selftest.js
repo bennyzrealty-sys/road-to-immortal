@@ -241,5 +241,74 @@ var ps3 = E.performanceSummary(st, U.addDays('2026-06-08', 7));
 check('perf clean rate 100 after clean week', ps3.cleanRatePct, 100);
 check('perf totalChi > 0', ps3.totalChi > 0, true);
 
+// ---- increment 3.1: Daily Trial determinism + detection + standing ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var nT = global.RTI_CONFIG.trials.length;
+function expectIdx(date) { return global.RTI_CONFIG.trials[((U.daysBetween('2020-01-01', date) % nT) + nT) % nT].id; }
+check('dailyTrial stable for a given day', E.dailyTrial(st, '2026-06-26').trial.id, expectIdx('2026-06-26'));
+check('dailyTrial rotates +1 array step next day', E.dailyTrial(st, '2026-06-27').trial.id, expectIdx('2026-06-27'));
+check('dailyTrial wraps after a full cycle', E.dailyTrial(st, U.addDays('2026-06-26', nT)).trial.id, E.dailyTrial(st, '2026-06-26').trial.id);
+// find a date in the first cycle that lands on each id we want to assert
+function dateForTrial(id) { for (var i = 0; i < nT; i++) { var d = U.addDays('2026-06-08', i); if (E.dailyTrial(st, d).trial.id === id) return d; } return null; }
+var dSteps = dateForTrial('steps10k');
+check('steps10k trial found in first cycle', !!dSteps, true);
+check('auto steps trial not met on blank day', E.dailyTrial(st, dSteps).done, false);
+S.saveLog(dSteps, Object.assign(S.blankLog(dSteps), { steps: 10000 }));
+check('auto steps trial met at 10k steps', E.dailyTrial(st, dSteps).done, true);
+S.saveLog(dSteps, Object.assign(S.blankLog(dSteps), { steps: 9999 }));
+check('auto steps trial NOT met at 9,999', E.dailyTrial(st, dSteps).done, false);
+var dProt = dateForTrial('protein');
+if (dProt) {
+  var pl = S.blankLog(dProt);
+  pl.nutrition = { dayType: 'shift', templateId: 'shiftA', meals: { B: 'eaten', L: 'eaten', S: 'eaten', T: 'eaten', D: 'eaten' } };
+  S.saveLog(dProt, pl);
+  check('auto protein trial met on full shiftA', E.dailyTrial(st, dProt).done, true);
+}
+// manual stale-id guard
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var dCold = dateForTrial('coldShower');
+if (dCold) {
+  S.patchLog(dCold, { trial: { id: 'coldShower', done: true } });
+  check('manual trial done when id matches', E.dailyTrial(st, dCold).done, true);
+  S.patchLog(dCold, { trial: { id: 'sunlight', done: true } });
+  check('manual trial ignored when stored id is stale', E.dailyTrial(st, dCold).done, false);
+}
+// trialStanding tally + streak
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+check('trialStanding empty -> 0 won / 0 streak', E.trialStanding(st, '2026-06-08'), { won: 0, streak: 0 });
+(function () {
+  for (var i = 0; i < 3; i++) {
+    var d = U.addDays('2026-06-08', i), dt = E.dailyTrial(st, d).trial, lg = S.blankLog(d);
+    if (dt.auto) {
+      if (dt.metric === 'steps') lg.steps = dt.need;
+      else if (dt.metric === 'breathingMin') lg.breathingMin = dt.need;
+      else if (dt.metric === 'meditationMin') lg.meditationMin = dt.need;
+      else if (dt.metric === 'cardioMin') lg.cardio = { type: 'walk', minutes: dt.need, notes: '' };
+      else if (dt.metric === 'sleepHrs') lg.sleepHrs = dt.need;
+      else if (dt.metric === 'proteinHit') lg.nutrition = { dayType: 'shift', templateId: 'shiftA', meals: { B: 'eaten', L: 'eaten', S: 'eaten', T: 'eaten', D: 'eaten' } };
+      else if (dt.metric === 'allTargets') lg.todayTargetsDone = (st.dailyTargets || []).map(function () { return true; });
+    } else { lg.trial = { id: dt.id, done: true }; }
+    S.saveLog(d, lg);
+  }
+})();
+var stand3 = E.trialStanding(st, U.addDays('2026-06-08', 2));
+check('trialStanding 3-day run -> 3 won', stand3.won, 3);
+check('trialStanding 3-day run -> streak 3', stand3.streak, 3);
+var stand4 = E.trialStanding(st, U.addDays('2026-06-08', 3));
+check('trialStanding streak breaks on a missed day', stand4.streak, 0);
+check('trialStanding won persists after a miss', stand4.won, 3);
+
+// ---- increment 3.1: share-card pure data (cross-checked against derived fns) ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20', displayName: 'Ben' }); st = S.getSettings();
+for (var scd = 0; scd < 8; scd++) { var dscd = U.addDays('2026-06-08', scd); S.saveLog(dscd, Object.assign(S.blankLog(dscd), { clean: true, breathingMin: 20, meditationMin: 10, steps: 10000 })); }
+var card = E.shareCardData(st, U.addDays('2026-06-08', 7));
+check('shareCard day == 8', card.day, 8);
+check('shareCard rank == Acolyte', card.rank, 'Acolyte');
+check('shareCard cleanStreak == 8', card.cleanStreak, 8);
+check('shareCard stage == The Clearing', card.stage, 'The Clearing');
+check('shareCard power matches auraScores', card.power, E.auraScores(st, U.addDays('2026-06-08', 7)).power);
+check('shareCard index matches meters', card.index, E.metersAsOf(st, U.addDays('2026-06-08', 7)).index);
+check('shareCard displayName trimmed', card.displayName, 'Ben');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

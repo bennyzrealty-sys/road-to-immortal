@@ -439,6 +439,51 @@
     });
   }
 
+  /* =================== DAILY TRIAL (Today) =================== */
+  function autoHave(t, log) {
+    switch (t.metric) {
+      case 'steps':         return (+log.steps || 0).toLocaleString();
+      case 'breathingMin':  return (+log.breathingMin || 0);
+      case 'meditationMin': return (+log.meditationMin || 0);
+      case 'cardioMin':     return (log.cardio && +log.cardio.minutes) || 0;
+      case 'sleepHrs':      return log.sleepHrs != null ? log.sleepHrs : 0;
+      default:              return '';
+    }
+  }
+  function trialCard(snap) {
+    var s = snap.settings, d = today();
+    var dt = E.dailyTrial(s, d), st = E.trialStanding(s, d), t = dt.trial;
+    var statusEl;
+    if (dt.auto) {
+      var log = S.getLog(d), hint = (t.hint || '').replace('{have}', autoHave(t, log));
+      statusEl = dt.done ? '<div class="trial-state done">✓ Met</div>'
+                         : '<div class="trial-state hint">' + esc(hint) + '</div>';
+    } else {
+      statusEl = '<button class="btn sm ' + (dt.done ? 'gold' : 'cyan') + '" data-trial="' + esc(t.id) + '">' +
+        (dt.done ? '✓ Done' : 'Mark done') + '</button>';
+    }
+    return '<div class="card trial' + (dt.done ? ' won' : '') + '">' +
+      '<div class="trial-head"><span class="day-num">Today’s Trial</span>' +
+        '<span class="trial-tally">' + st.won + ' won · 🔥 ' + st.streak + '</span></div>' +
+      '<div class="trial-title">' + esc(t.title) + '</div>' +
+      '<div class="trial-desc tiny muted">' + esc(t.desc) + '</div>' +
+      '<div class="trial-foot">' + statusEl +
+        '<span class="trial-kind tiny faint">' + (dt.auto ? 'auto · from your log' : 'self-attested') + '</span></div>' +
+    '</div>';
+  }
+  function wireTrial() {
+    var tb = appEl.querySelector('[data-trial]');
+    if (!tb) return;
+    tb.onclick = function () {
+      var d = today(), id = tb.getAttribute('data-trial');
+      var cur = S.getLog(d).trial;
+      var nextDone = !(cur && cur.id === id && cur.done);
+      S.patchLog(d, { trial: { id: id, done: nextDone } });
+      if (nextDone) { if (!reducedMotion()) celebrateSmall(); toast('Trial won. One more day forged.'); }
+      render();
+    };
+  }
+
   /* =================== SCREENS =================== */
   function metersBlock(m) {
     function bar(cls, name, color, val) {
@@ -476,7 +521,7 @@
       '<button class="btn sm gold" data-go="settings">Export</button></div></div>' : '';
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner + coachCard(snap) +
+      header('today') + backupBanner + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -500,7 +545,7 @@
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
     '</div>';
-    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach();
+    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach(); wireTrial();
 
     // wire
     appEl.querySelectorAll('[data-target]').forEach(function (el) {
@@ -1228,6 +1273,7 @@
         '<div class="power-pct"><b>' + aura.power + '</b><span>% charged</span></div>' +
         '<div class="rank-sub">Stage · <b style="color:var(--gold-soft)">' + esc(stage.current.name) + '</b>' + (stage.next ? ' · ' + stage.daysToNext + ' clean days to ' + esc(stage.next.name) : ' · the summit') + '</div>' +
         '<div class="tiny faint" style="margin-top:10px">Charge is mostly the <b>permanence of your streak</b>. A relapse genuinely discharges it; a kept streak rebuilds it, stage after stage.</div>' +
+        '<button class="btn gold full" data-share-card style="margin-top:14px">🖼 Share your charge</button>' +
       '</div>' +
       '<div class="card center"><h3>Magnetism / attraction field</h3>' + magnetGauge(aura.magnetism) +
         '<div class="tiny faint" style="margin-top:2px">This reads <b>your own charge</b> — presence, retention, energy, will — not a promise about anyone else. Read yourself here; read the room in Signals.</div>' +
@@ -1261,6 +1307,7 @@
       '<div class="card"><div class="tiny faint">These numbers are a mirror of your own logs and streak — not a verdict, and never a claim about how anyone else must respond. Become someone worth meeting; the rest is theirs to decide freely.</div></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
+    var sc = appEl.querySelector('[data-share-card]'); if (sc) sc.onclick = openShareCard;
   }
 
   /* ---- SIGNALS — body-language field codex (increment 3) ---- */
@@ -1280,6 +1327,92 @@
         '<button class="btn ghost sm" data-go="power" style="margin-top:12px">⚡ Back to Immortal Power</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
+  }
+
+  /* ---- SHAREABLE PROGRESS CARD (increment 3.1, offline canvas → PNG) ---- */
+  function drawPowerBodyOnto(ctx, pct, x, y, w, hgt) {
+    return new Promise(function (resolve, reject) {
+      // standalone, self-sized SVG (the live node sizes via CSS class, which a detached Image lacks)
+      var svg = powerBody(pct).replace('<svg class="pbody"', '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + hgt + '"');
+      var url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+      var img = new Image();
+      img.onload = function () { try { ctx.drawImage(img, x, y, w, hgt); } catch (e) {} URL.revokeObjectURL(url); resolve(); };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('svg raster failed')); };
+      img.src = url;
+    });
+  }
+  function renderShareCard() {
+    var data = E.shareCardData(S.getSettings(), today());
+    var W = 1080, Hc = 1350, cv = document.createElement('canvas');
+    cv.width = W; cv.height = Hc;
+    var ctx = cv.getContext('2d');
+    ctx.fillStyle = '#06060e'; ctx.fillRect(0, 0, W, Hc);
+    function orb(x, y, r, rgb, a) { var g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, Hc); }
+    ctx.globalCompositeOperation = 'lighter';
+    orb(W * 0.78, Hc * 0.08, 700, '214,175,78', 0.16);
+    orb(W * 0.15, Hc * 0.95, 760, '98,216,255', 0.12);
+    orb(W * 0.5, Hc * 0.5, 520, '154,107,255', 0.07);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(214,175,78,0.35)'; ctx.lineWidth = 3; ctx.strokeRect(28, 28, W - 56, Hc - 56);
+    function text(t, x, y, font, color, ls) {
+      ctx.font = font; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      var has = ('letterSpacing' in ctx); if (has) ctx.letterSpacing = (ls || 0) + 'px';
+      ctx.fillText(t, x, y); if (has) ctx.letterSpacing = '0px';
+    }
+    text('ROAD TO IMMORTAL', W / 2, 132, '700 52px system-ui, sans-serif', '#f0d488', 6);
+    text((data.displayName ? data.displayName + ' · ' : '') + 'MONK MODE', W / 2, 180, '400 26px system-ui, sans-serif', '#6a6f99', 4);
+    return drawPowerBodyOnto(ctx, data.power, W / 2 - 165, 250, 330, 550)
+      .catch(function () {
+        var cx = W / 2, cy = 525, r = 190; ctx.lineWidth = 26;
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
+        ctx.strokeStyle = '#ffce6a'; ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * data.power / 100); ctx.stroke();
+      })
+      .then(function () {
+        text(data.power + '%', W / 2, 920, '700 130px system-ui, sans-serif', '#ffce6a', 0);
+        text('IMMORTAL POWER · CHARGED', W / 2, 968, '400 24px system-ui, sans-serif', '#9aa0c7', 4);
+        text(data.rank, W / 2, 1070, '700 56px system-ui, sans-serif', '#f0d488', 1);
+        text('Stage · ' + data.stage, W / 2, 1118, '400 30px system-ui, sans-serif', '#9aa0c7', 1);
+        function stat(label, val, x) { text(String(val), x, 1232, '700 64px system-ui, sans-serif', '#e9e9ff', 0); text(label, x, 1274, '400 22px system-ui, sans-serif', '#6a6f99', 3); }
+        stat('DAY', data.day, W * 0.27); stat('STREAK', data.cleanStreak, W * 0.5); stat('INDEX', data.index, W * 0.73);
+        text('kept only on this device · road to immortal', W / 2, 1322, '400 20px system-ui, sans-serif', '#6a6f99', 2);
+        return cv;
+      });
+  }
+  function openShareCard() {
+    var ov = h('<div class="overlay sharecard">' +
+        '<div class="day-num">YOUR CHARGE</div>' +
+        '<div class="sc-preview"><canvas id="sc-cv"></canvas><div class="sc-load tiny faint">Forging your sigil…</div></div>' +
+        '<div class="row" style="gap:10px;margin-top:14px">' +
+          '<button class="btn gold" data-sc="share" style="display:none">Share</button>' +
+          '<button class="btn cyan" data-sc="download">Download</button>' +
+          '<button class="btn ghost sm" data-sc="close">Close</button></div></div>');
+    document.body.appendChild(ov);
+    ov._cleanup = function () { ov.remove(); };
+    ov.querySelector('[data-sc=close]').onclick = ov._cleanup;
+    renderShareCard().then(function (cv) {
+      if (!document.body.contains(ov)) return;             // closed early
+      var holder = ov.querySelector('#sc-cv'); holder.width = cv.width; holder.height = cv.height;
+      holder.getContext('2d').drawImage(cv, 0, 0);
+      var ld = ov.querySelector('.sc-load'); if (ld) ld.remove();
+      ov._cardCanvas = cv;
+      cv.toBlob(function (blob) {
+        if (!blob || typeof File === 'undefined') return;
+        var file = new File([blob], 'road-to-immortal-' + today() + '.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+          var sb = ov.querySelector('[data-sc=share]'); sb.style.display = '';
+          sb.onclick = function () { navigator.share({ files: [file], title: 'Road to Immortal', text: 'Day ' + E.shareCardData(S.getSettings(), today()).day }).catch(function () {}); };
+        }
+      }, 'image/png');
+    }).catch(function (e) { var ld = ov.querySelector('.sc-load'); if (ld) ld.textContent = 'Could not render: ' + (e && e.message || e); });
+    ov.querySelector('[data-sc=download]').onclick = function () {
+      var cv = ov._cardCanvas; if (!cv) { toast('Still forging — one moment.'); return; }
+      cv.toBlob(function (blob) {
+        var url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = 'road-to-immortal-' + today() + '.png';
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        toast('Sigil card saved.');
+      }, 'image/png');
+    };
   }
 
   /* ---- SETTINGS / BACKUP ---- */
