@@ -267,6 +267,13 @@ nav.tabs button.on { color:var(--gold-soft); text-shadow:0 0 12px rgba(214,175,7
 .cues { margin:8px 0 0; padding-left:18px; }
 .cues li { font-size:13px; color:var(--ink-dim); line-height:1.5; margin:4px 0; }
 
+/* movement: stat row + live walk */
+.walk-stats { display:flex; justify-content:space-between; gap:10px; text-align:center; }
+.walk-stats > div { flex:1; }
+.walk-stats b { font-size:22px; color:var(--ink); }
+.walk-stats span { display:block; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:1px; margin-top:2px; }
+.overlay.walk .breath b { font-size:46px; color:#bff0ff; text-shadow:0 0 18px rgba(98,216,255,.6); }
+
 /* daily trial card */
 .card.trial { border-color:rgba(214,175,78,0.28); }
 .card.trial.won { border-color:rgba(91,224,160,0.45); background:linear-gradient(180deg,rgba(91,224,160,0.08),transparent); }

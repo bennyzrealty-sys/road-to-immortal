@@ -333,6 +333,15 @@
       '<defs><linearGradient id="cgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5be0a0"/><stop offset="1" stop-color="#62d8ff"/></linearGradient></defs></svg>' +
       '<div class="cring-v">' + pct + '<span>%</span></div></div>';
   }
+  // step-goal ring (steps in the centre)
+  function stepRing(steps, goal) {
+    var pct = Math.min(100, steps / goal * 100), R = 54, C = 2 * Math.PI * R, off = C * (1 - pct / 100);
+    return '<div class="dial"><svg viewBox="0 0 128 128" width="128" height="128">' +
+      '<circle cx="64" cy="64" r="' + R + '" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>' +
+      '<circle cx="64" cy="64" r="' + R + '" fill="none" stroke="url(#stepg)" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 64 64)"/>' +
+      '<defs><linearGradient id="stepg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5be0a0"/><stop offset="1" stop-color="#62d8ff"/></linearGradient></defs></svg>' +
+      '<div class="val"><b>' + steps.toLocaleString() + '</b><span>steps</span></div></div>';
+  }
   // the charging human body. Fill rises feet->head with power %.
   var FIG_SHAPES =
     '<circle cx="60" cy="22" r="15"/>' +
@@ -557,6 +566,7 @@
       '<div class="btn-grid"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
+      '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach(); wireTrial();
 
@@ -1342,6 +1352,101 @@
     appEl.innerHTML = ''; appEl.appendChild(h(html));
   }
 
+  /* ---- MOVEMENT — steps · distance · weight-aware calories (increment 3.3) ---- */
+  function screenMovement() {
+    var s = S.getSettings(), d = today(), mv = E.movementSummary(s, d);
+    var noBody = (s.heightCm == null || s.currentWeightKg == null);
+    var dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    var stepsWk = [], distWk = [];
+    for (var i = 6; i >= 0; i--) {
+      var dt = U.addDays(d, -i), lg = S.getLog(dt), stp = (+lg.steps || 0), lbl = dow[U.fromISO(dt).getDay()];
+      stepsWk.push({ label: lbl, value: Math.round(stp / 1000) });
+      distWk.push({ label: lbl, value: +E.distanceKm(stp, s.heightCm).toFixed(1) });
+    }
+    var html = '<div class="screen">' + header('Movement') +
+      '<div class="card today-hero">' +
+        '<div class="day-num">Today · Movement</div>' +
+        '<div class="index-wrap">' + stepRing(mv.steps, mv.goal) + '</div>' +
+        '<div class="walk-stats" style="margin-top:4px">' +
+          '<div><b>' + mv.distanceKm.toFixed(2) + '</b><span>km</span></div>' +
+          '<div><b>' + mv.kcal + '</b><span>kcal (est)</span></div>' +
+          '<div><b>' + Math.round(mv.pct) + '%</b><span>of ' + (mv.goal / 1000) + 'k goal</span></div></div>' +
+        (noBody ? '<div class="flag info" style="margin-top:12px">Set your <b>height</b> &amp; <b>weight</b> in Settings for accurate distance &amp; calories. <button class="btn ghost sm" data-go="settings" style="margin-left:6px">Open</button></div>' : '') +
+      '</div>' +
+      '<div class="card"><h3>Set today’s steps</h3>' +
+        '<div class="tiny muted" style="margin-bottom:8px">Read your all-day total off your phone’s step counter and enter it — distance &amp; calories update from your height &amp; weight. (A website can’t read the step sensor in the background; that total lives in your native counter.)</div>' +
+        '<label class="field"><span>Steps today</span><input type="number" inputmode="numeric" id="mv-steps" value="' + (mv.steps || '') + '"></label>' +
+        '<div class="seg"><button data-mv="1000">+1,000</button><button data-mv="500">+500</button><button data-mv="-500">−500</button><button data-mv="reset">reset</button></div>' +
+      '</div>' +
+      '<div class="card"><h3>Live walk</h3>' +
+        '<div class="tiny muted" style="margin-bottom:8px">Let the app count a walk itself using the motion sensor — keep the screen on and the phone with you. It runs only while open, then adds to today’s steps, distance &amp; calories.</div>' +
+        '<button class="btn gold full" id="mv-walk">▶ Start walk session</button></div>' +
+      '<div class="card"><h3>This week</h3><div class="muted tiny">Steps (k) / day</div>' + barChart(stepsWk, '#5be0a0', 'k') +
+        '<div class="muted tiny" style="margin-top:10px">Distance (km) / day</div>' + barChart(distWk, '#62d8ff', 'km') + '</div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    var inp = appEl.querySelector('#mv-steps');
+    inp.addEventListener('change', function () { var v = inp.value === '' ? 0 : Math.max(0, Math.round(+inp.value)); S.patchLog(d, { steps: v }); render(); });
+    appEl.querySelectorAll('[data-mv]').forEach(function (b) {
+      b.onclick = function () {
+        var a = b.getAttribute('data-mv'), cur = +S.getLog(d).steps || 0;
+        var nx = a === 'reset' ? 0 : Math.max(0, cur + (+a));
+        S.patchLog(d, { steps: nx }); render();
+      };
+    });
+    appEl.querySelector('#mv-walk').onclick = openWalkSession;
+  }
+  function openWalkSession() {
+    var s = S.getSettings();
+    function begin() {
+      var t0 = Date.now(), det = E.createStepDetector(), running = true, wake = null, lastVibe = 0;
+      var ov = h('<div class="overlay walk">' +
+        '<div class="day-num">LIVE WALK</div>' +
+        '<div class="breath run" id="w-ring"><b id="w-steps">0</b></div>' +
+        '<div class="walk-stats" style="width:min(360px,86vw)">' +
+          '<div><b id="w-dist">0.00</b><span>km</span></div>' +
+          '<div><b id="w-kcal">0</b><span>kcal</span></div>' +
+          '<div><b id="w-time">0:00</b><span>time</span></div></div>' +
+        '<div class="tiny faint" id="w-msg" style="max-width:340px;margin-top:8px">Keep the phone with you, screen on. Counting runs only while this is open.</div>' +
+        '<button class="btn gold full" style="max-width:340px;margin-top:16px" data-w="stop">Finish &amp; log walk</button>' +
+        '<button class="btn ghost sm" data-w="cancel" style="margin-top:8px">Cancel</button></div>');
+      document.body.appendChild(ov);
+      if (navigator.wakeLock && navigator.wakeLock.request) navigator.wakeLock.request('screen').then(function (w) { wake = w; }).catch(function () {});
+      var stepsEl = ov.querySelector('#w-steps'), distEl = ov.querySelector('#w-dist'), kcalEl = ov.querySelector('#w-kcal'), timeEl = ov.querySelector('#w-time');
+      function onMotion(e) {
+        var a = e.accelerationIncludingGravity || e.acceleration; if (!a) return;
+        var mag = Math.sqrt((a.x || 0) * (a.x || 0) + (a.y || 0) * (a.y || 0) + (a.z || 0) * (a.z || 0));
+        if (det.push(mag, e.timeStamp != null ? e.timeStamp : (Date.now() - t0))) {
+          var c = det.count(), min = (Date.now() - t0) / 60000;
+          stepsEl.textContent = c;
+          distEl.textContent = E.distanceKm(c, s.heightCm).toFixed(2);
+          kcalEl.textContent = Math.round(E.caloriesForSession(c, min, s.currentWeightKg, s.heightCm));
+          if (c - lastVibe >= 1000) { lastVibe = c; if (navigator.vibrate && !reducedMotion()) navigator.vibrate(60); }
+        }
+      }
+      window.addEventListener('devicemotion', onMotion);
+      var ti = setInterval(function () { var sec = Math.floor((Date.now() - t0) / 1000); timeEl.textContent = Math.floor(sec / 60) + ':' + ('0' + (sec % 60)).slice(-2); }, 1000);
+      function cleanup() { running = false; clearInterval(ti); window.removeEventListener('devicemotion', onMotion); if (wake && wake.release) { try { wake.release(); } catch (e) {} } ov.remove(); }
+      ov._cleanup = cleanup;
+      ov.querySelector('[data-w=cancel]').onclick = cleanup;
+      ov.querySelector('[data-w=stop]').onclick = function () {
+        var min = (Date.now() - t0) / 60000, n = det.count();
+        cleanup();
+        if (n > 0) {
+          var log = S.getLog(today()), addKcal = Math.round(E.caloriesForSession(n, min, s.currentWeightKg, s.heightCm));
+          S.patchLog(today(), { steps: (+log.steps || 0) + n, kcalBurned: (+log.kcalBurned || 0) + addKcal, cardio: { type: 'walk', minutes: Math.round(min), notes: 'live walk' } });
+          toast('Walk logged · ' + n + ' steps · ' + E.distanceKm(n, s.heightCm).toFixed(2) + ' km');
+        }
+        render();
+      };
+      setTimeout(function () { if (running && det.count() === 0) { var m = ov.querySelector('#w-msg'); if (m) m.textContent = 'No motion detected. On iPhone allow motion access; on a desktop there is no sensor — use “Set today’s steps” instead.'; } }, 4500);
+    }
+    if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function (r) { if (r === 'granted') begin(); else toast('Motion access denied.'); }).catch(function () { toast('Motion access unavailable here.'); });
+    } else if (window.DeviceMotionEvent) { begin(); }
+    else { toast('This device exposes no motion sensor — use “Set today’s steps”.'); }
+  }
+
   /* ---- SHAREABLE PROGRESS CARD (increment 3.1, offline canvas → PNG) ---- */
   function drawPowerBodyOnto(ctx, pct, x, y, w, hgt) {
     return new Promise(function (resolve, reject) {
@@ -1521,7 +1626,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -1531,7 +1636,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });

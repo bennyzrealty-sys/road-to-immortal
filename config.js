@@ -429,6 +429,27 @@
       { id: 'posture',    title: 'The Open Frame',   auto: false, desc: 'Hold open, grounded posture through one full conversation.' }
     ],
 
+    /* ---- Movement: steps → distance → weight-aware calories ----
+       A website can't read the phone's step sensor in the background (only a
+       native app can), so the day's total is entered from the owner's own step
+       counter; an in-app accelerometer "live walk" measures a session while
+       open. Distance uses a height-derived stride; calories are weight-aware
+       (cadence→MET for a timed session, distance-based for a daily total). */
+    movement: {
+      strideFactor: 0.414,        // stride(m) = heightCm * strideFactor / 100
+      stepGoal: 10000,
+      defaultHeightCm: 175,       // fallbacks only (with a "set it" nudge in the UI)
+      defaultWeightKg: 75,
+      kcalPerKgKm: 0.53,          // walking, weight-aware distance estimate
+      // [upTo cadence (steps/min), MET]; first band whose upTo exceeds cadence wins
+      metByCadence: [
+        { upTo: 80, met: 2.8 }, { upTo: 100, met: 3.0 }, { upTo: 120, met: 4.3 },
+        { upTo: 140, met: 5.0 }, { upTo: 999, met: 7.0 }
+      ],
+      // live-walk accelerometer peak-detector tunables (magnitude in m/s²)
+      sensor: { threshold: 11.2, reArmFactor: 0.93, minStepMs: 270, smoothing: 0.4 }
+    },
+
     /* ================= QUOTES & CODEX =================
        ALL original / paraphrased. No copyrighted passages.
        {day},{streak},{rank},{next},{toNext},{index} are filled from

@@ -260,6 +260,37 @@ record-keeping gap, not a reference bug (the code already uses the live streak e
 9 new self-test assertions (the symptom, the integrity guards, idempotency, the resulting
 streak) — `node tools/selftest.js` → **116 passed**. Service-worker cache bumped to **v9**.
 
+## Increment 3.3 — Movement (steps · distance · weight-aware calories)
+
+The parked step tracker, built the honest pure-PWA way (a website can't read the phone's step
+sensor in the background — only a native app can — so the all-day total is entered from the
+owner's own step counter, with an in-app accelerometer "live walk" for measuring a session).
+
+**Pure math** (`config.movement`, `engine.js`): `strideMeters` (height→stride), `distanceKm`,
+`metForCadence` (cadence→MET band), `caloriesForSteps` (distance-based, weight-aware),
+`caloriesForSession` (cadence→MET when a walk is timed), `movementSummary`. Every figure scales
+with `currentWeightKg` / `heightCm` from Settings (sensible fallbacks + a "set it" nudge).
+
+**Movement screen** (`app.js` `screenMovement`, reached from Today): a step-goal ring + today's
+distance / calories, a **"Set today's steps"** entry (read your native counter's total → distance
+& calories recompute), and weekly steps + distance charts. Writes `log.steps`, so it feeds the
+existing Vitality meter, the coach "move" item and the `steps10k` trial automatically.
+
+**Live walk** (`openWalkSession` + `engine.createStepDetector`): a foreground session that counts
+steps from `DeviceMotionEvent` (low-pass + hysteresis + debounce peak detection), keeps the screen
+on via **Screen Wake Lock**, gives **haptic** feedback each 1,000 steps, and on finish adds the
+measured steps + cadence-based calories + a `walk` cardio entry to the day. iOS motion permission is
+requested from the Start tap; it degrades gracefully where there's no sensor (→ use manual entry).
+
+The step-detector defaults were **tuned empirically** (alpha 0.4) so it counts cleanly across slow
+and brisk cadences and ignores stillness. 18 new self-test assertions (stride/distance/MET/calorie
+math, weight scaling, and the detector on synthetic walks) — `node tools/selftest.js` → **134
+passed**. No new files; service-worker cache bumped to **v10**.
+
+> The live walk only measures while the app is open (a website limitation). For all-day totals,
+> read your native step counter and use *Set today's steps*. True background counting would need
+> the native-wrapper path still parked in the plan.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

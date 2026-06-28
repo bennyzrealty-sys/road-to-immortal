@@ -332,5 +332,31 @@ check('clean backfill -> full 21-day streak', E.streakAsOf(st, '2026-06-28').cur
 check('backfill lifts Immortal Power above zero', E.auraScores(st, '2026-06-28').power > 0, true);
 check('backfill bad range (to<from) -> 0', S.backfillClean('2026-06-28', '2026-06-08'), 0);
 
+// ---- increment 3.3: Movement (distance + weight-aware calories + step detector) ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20', heightCm: 175, currentWeightKg: 75 }); st = S.getSettings();
+near('stride @175cm', E.strideMeters(175), 0.7245, 0.001);
+near('distance 10k steps @175', E.distanceKm(10000, 175), 7.245, 0.01);
+near('stride falls back to default when null', E.strideMeters(null), 0.7245, 0.001);   // default 175
+check('MET cadence 60 (slow)', E.metForCadence(60), 2.8);
+check('MET cadence 110 (brisk)', E.metForCadence(110), 4.3);
+check('MET cadence 150 (jog)', E.metForCadence(150), 7);
+near('session kcal 1000st/10min/80kg (cadence 100→4.3 MET)', E.caloriesForSession(1000, 10, 80, 175), 60.2, 1);
+near('steps kcal 10k/75kg/175 (distance-based)', E.caloriesForSteps(10000, 75, 175), 288.0, 1);
+near('weight scales calories (heavier burns more)', E.caloriesForSteps(10000, 90, 175), 345.6, 1);
+near('session falls back to distance kcal when no minutes', E.caloriesForSession(10000, 0, 75, 175), 288.0, 1);
+// movementSummary reads the day's logged steps
+S.patchLog('2026-06-28', { steps: 8000 });
+var mvs = E.movementSummary(st, '2026-06-28');
+check('movementSummary steps', mvs.steps, 8000);
+near('movementSummary distance', mvs.distanceKm, 5.8, 0.05);
+check('movementSummary goal', mvs.goal, 10000);
+near('movementSummary pct (8k/10k)', mvs.pct, 80, 0.5);
+// step detector: clean walk counts, rest counts nothing, debounce holds one peak
+function simWalk(steps, stepMs, det) { var T = steps * stepMs, t = 0; while (t <= T) { var ph = (t % stepMs) / stepMs; det.push(9.81 + (14 - 9.81) * Math.max(0, Math.sin(ph * Math.PI)), t); t += 20; } return det.count(); }
+check('detector counts 20 brisk steps', simWalk(20, 450, E.createStepDetector()), 20);
+check('detector counts 30 slow steps', simWalk(30, 650, E.createStepDetector()), 30);
+check('detector ignores stillness', (function () { var d = E.createStepDetector(); for (var t = 0; t < 8000; t += 20) d.push(9.81, t); return d.count(); })(), 0);
+check('detector debounces one sustained peak to 1', (function () { var d = E.createStepDetector(); for (var t = 0; t < 2000; t += 20) d.push(14, t); return d.count(); })(), 1);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

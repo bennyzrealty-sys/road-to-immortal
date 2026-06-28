@@ -493,6 +493,57 @@
     return { won: won, streak: streak };
   }
 
+  /* ---------- Movement: steps → distance → weight-aware calories (pure) ---------- */
+  function strideMeters(heightCm) {
+    var h = (heightCm != null && +heightCm > 0) ? +heightCm : CFG.movement.defaultHeightCm;
+    return h * CFG.movement.strideFactor / 100;
+  }
+  function distanceKm(steps, heightCm) { return num(steps) * strideMeters(heightCm) / 1000; }
+  function metForCadence(cadence) {
+    var b = CFG.movement.metByCadence;
+    for (var i = 0; i < b.length; i++) { if (cadence < b[i].upTo) return b[i].met; }
+    return b[b.length - 1].met;
+  }
+  function caloriesForSteps(steps, weightKg, heightCm) {            // distance-based (no time)
+    var w = (weightKg != null && +weightKg > 0) ? +weightKg : CFG.movement.defaultWeightKg;
+    return distanceKm(steps, heightCm) * w * CFG.movement.kcalPerKgKm;
+  }
+  function caloriesForSession(steps, minutes, weightKg, heightCm) { // cadence→MET when timed
+    var w = (weightKg != null && +weightKg > 0) ? +weightKg : CFG.movement.defaultWeightKg;
+    if (minutes && +minutes > 0) {
+      var met = metForCadence(num(steps) / +minutes);
+      return met * 3.5 * w / 200 * +minutes;       // kcal = MET·3.5·kg/200 per minute
+    }
+    return caloriesForSteps(steps, weightKg, heightCm);
+  }
+  function movementSummary(settings, asOf) {
+    var log = S.getLog(asOf), steps = num(log.steps), goal = CFG.movement.stepGoal;
+    return {
+      steps: steps, distanceKm: U.round(distanceKm(steps, settings.heightCm), 2),
+      kcal: Math.round(caloriesForSteps(steps, settings.currentWeightKg, settings.heightCm)),
+      goal: goal, pct: U.clamp(steps / goal * 100, 0, 100)
+    };
+  }
+  // Pure, stateful step detector for the live-walk accelerometer feed. push()
+  // takes an acceleration magnitude + timestamp(ms) and returns true on a step.
+  function createStepDetector(opts) {
+    var sc = CFG.movement.sensor; opts = opts || {};
+    var thr = opts.threshold != null ? opts.threshold : sc.threshold;
+    var reArm = thr * (opts.reArmFactor != null ? opts.reArmFactor : sc.reArmFactor);
+    var minMs = opts.minStepMs != null ? opts.minStepMs : sc.minStepMs;
+    var alpha = opts.smoothing != null ? opts.smoothing : sc.smoothing;
+    var smoothed = null, count = 0, lastT = -1e9, armed = true;
+    return {
+      push: function (mag, tMs) {
+        smoothed = (smoothed == null) ? mag : alpha * smoothed + (1 - alpha) * mag;
+        if (armed && smoothed > thr && (tMs - lastT) >= minMs) { count++; lastT = tMs; armed = false; return true; }
+        if (smoothed < reArm) armed = true;
+        return false;
+      },
+      count: function () { return count; }
+    };
+  }
+
   /* ---------- Shareable progress card: pure data (every value is derived) ---------- */
   function shareCardData(settings, asOf) {
     var day = dayNumber(settings, asOf), rank = rankFor(day);
@@ -567,6 +618,9 @@
     coachPhase: coachPhase, dailyAgenda: dailyAgenda, auraScores: auraScores,
     stageFor: stageFor, performanceSummary: performanceSummary,
     trialIndexFor: trialIndexFor, dailyTrial: dailyTrial, trialStanding: trialStanding,
-    shareCardData: shareCardData
+    shareCardData: shareCardData,
+    strideMeters: strideMeters, distanceKm: distanceKm, metForCadence: metForCadence,
+    caloriesForSteps: caloriesForSteps, caloriesForSession: caloriesForSession,
+    movementSummary: movementSummary, createStepDetector: createStepDetector
   };
 })(typeof window !== 'undefined' ? window : this);
