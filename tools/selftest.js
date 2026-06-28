@@ -310,5 +310,27 @@ check('shareCard power matches auraScores', card.power, E.auraScores(st, U.addDa
 check('shareCard index matches meters', card.index, E.metersAsOf(st, U.addDays('2026-06-08', 7)).index);
 check('shareCard displayName trimmed', card.displayName, 'Ben');
 
+// ---- increment 3.2: backfill clean days (catch-up) ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+// only today marked clean -> Day 21 but streak 1 (the reported symptom)
+S.patchLog('2026-06-28', { clean: true });
+check('symptom: streak 1 while day 21', E.streakAsOf(st, '2026-06-28').current, 1);
+// a logged slip on day 5 and a relapse on day 9 that backfill must NOT overwrite
+var slipDate = U.addDays('2026-06-08', 4); S.patchLog(slipDate, { clean: false });
+var relDate = U.addDays('2026-06-08', 8); S.addRelapse({ date: relDate, note: '', streakLengthAtReset: 0 });
+var filled = S.backfillClean('2026-06-08', '2026-06-28');
+check('backfill marks the unlogged days only', filled, 18);          // 21 days - today(clean) - slip - relapse
+check('backfill preserves a logged slip', S.getLog(slipDate).clean, false);
+check('backfill does not write clean over a relapse day', S.getLog(relDate).clean, null);
+check('backfill is idempotent (0 the second time)', S.backfillClean('2026-06-08', '2026-06-28'), 0);
+// the relapse splits the run; streak now counts the clean days AFTER it through today
+check('streak after backfill counts post-relapse clean run', E.streakAsOf(st, '2026-06-28').current, 12);
+// a clean span with no slips/relapses backfills into a full streak
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+S.backfillClean('2026-06-08', '2026-06-28');
+check('clean backfill -> full 21-day streak', E.streakAsOf(st, '2026-06-28').current, 21);
+check('backfill lifts Immortal Power above zero', E.auraScores(st, '2026-06-28').power > 0, true);
+check('backfill bad range (to<from) -> 0', S.backfillClean('2026-06-28', '2026-06-08'), 0);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

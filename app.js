@@ -520,8 +520,21 @@
       '<div class="row"><div class="grow"><b>Back up your journey</b><div class="tiny muted">500 days of progress lives only on this device. Export a copy.</div></div>' +
       '<button class="btn sm gold" data-go="settings">Export</button></div></div>' : '';
 
+    // streak catch-up nudge: count unlogged days between start and today (single parse, cheap)
+    var allLogs = S.getLogs(), relSet = {};
+    S.getRelapses().forEach(function (r) { relSet[r.date] = true; });
+    var unloggedDays = 0;
+    for (var ui = 0; ui < snap.day; ui++) {
+      var ud = U.addDays(s.startDate, ui), lg = allLogs[ud];
+      if (!relSet[ud] && !(lg && lg.clean != null)) unloggedDays++;
+    }
+    var catchupBanner = (unloggedDays >= 2) ?
+      '<div class="card" style="border-color:rgba(98,216,255,.35);background:rgba(98,216,255,.07)">' +
+        '<div class="row"><div class="grow"><b>Catch up your streak</b><div class="tiny muted">You’re on Day ' + snap.day + ' with a ' + snap.streak.current + '-day streak. ' + unloggedDays + ' earlier day' + (unloggedDays === 1 ? '' : 's') + ' aren’t logged — if you held clean then, record them so Immortal Power &amp; your stage reflect it.</div></div>' +
+        '<button class="btn sm cyan" data-go="settings">Catch up</button></div></div>' : '';
+
     var html = '<div class="screen">' +
-      header('today') + backupBanner + coachCard(snap) + trialCard(snap) +
+      header('today') + backupBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -1426,6 +1439,12 @@
         '<label class="field"><span>Display name (optional)</span><input type="text" id="set-name" value="' + esc(s.displayName || '') + '"></label>' +
         '<div class="tiny faint">Everything else — day, rank, streak, meters — is derived from these and your logs. You can’t fake the core numbers.</div>' +
       '</div>' +
+      '<div class="card"><h3>Catch up your streak</h3>' +
+        '<div class="tiny muted" style="margin-bottom:8px">Held clean before you started tapping it in daily? Record it here. This marks every <b>unlogged</b> day in the range as clean, so your streak, rank, Immortal Power and stage reflect the history you actually lived. Days you logged as a slip/relapse are left untouched — only mark days you were genuinely clean.</div>' +
+        '<label class="field"><span>Clean since</span><input type="date" id="set-cleansince" value="' + esc(s.startDate) + '" min="' + esc(s.startDate) + '" max="' + esc(today()) + '"></label>' +
+        '<button class="btn gold" id="do-backfill">Mark those days clean</button>' +
+        '<div class="tiny faint" style="margin-top:8px">Began monk-mode before this app’s start date? Set an earlier start date above first.</div>' +
+      '</div>' +
       '<div class="card"><h3>Body context (optional, fat% only)</h3>' +
         '<label class="field"><span>Height (cm)</span><input type="number" id="set-h" value="' + (s.heightCm != null ? s.heightCm : '') + '"></label>' +
         '<label class="field"><span>Current weight (kg)</span><input type="number" id="set-w" value="' + (s.currentWeightKg != null ? s.currentWeightKg : '') + '"></label>' +
@@ -1446,6 +1465,15 @@
     function bindDate(id, key) { var el = appEl.querySelector(id); el.addEventListener('change', function () { if (el.value) { S.setSettings(mkPatch(key, el.value)); toast('Saved.'); } }); }
     bindDate('#set-start', 'startDate'); bindDate('#set-target', 'targetDate');
     appEl.querySelector('#set-name').addEventListener('change', function (e) { S.setSettings({ displayName: e.target.value }); });
+    appEl.querySelector('#do-backfill').onclick = function () {
+      var ss = S.getSettings(), from = appEl.querySelector('#set-cleansince').value || ss.startDate, t = today();
+      if (from < ss.startDate) from = ss.startDate;
+      if (U.daysBetween(from, t) < 0) { toast('Pick a date on or before today.'); return; }
+      if (!confirm('Mark every UNLOGGED day from ' + from + ' through today as clean? Only do this for days you were genuinely clean — logged slips / relapses are left as-is.')) return;
+      var n = S.backfillClean(from, t), after = E.streakAsOf(S.getSettings(), t).current;
+      toast(n + ' day' + (n === 1 ? '' : 's') + ' recorded · streak now ' + after);
+      render();
+    };
     appEl.querySelector('#set-h').addEventListener('change', function (e) { S.setSettings({ heightCm: e.target.value === '' ? null : +e.target.value }); });
     appEl.querySelector('#set-w').addEventListener('change', function (e) { S.setSettings({ currentWeightKg: e.target.value === '' ? null : +e.target.value }); });
     appEl.querySelector('#set-rm').onclick = function () {

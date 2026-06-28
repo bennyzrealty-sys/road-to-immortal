@@ -102,6 +102,20 @@
     for (var k in patch) log[k] = patch[k];
     return saveLog(date, log);
   }
+  // Backfill: mark every UNLOGGED day in [fromISO..toISO] as clean. Honest by
+  // construction — it never overwrites a day already answered (clean true/false)
+  // or any relapse day. For recording a streak you lived before logging daily.
+  // Returns the number of days newly marked clean.
+  function backfillClean(fromISO, toISO) {
+    if (!fromISO || !toISO || U.daysBetween(fromISO, toISO) < 0) return 0;
+    var span = U.daysBetween(fromISO, toISO), count = 0;
+    for (var i = 0; i <= span; i++) {
+      var date = U.addDays(fromISO, i), log = getLog(date);
+      if (log.clean == null && !relapseOnDate(date)) { patchLog(date, { clean: true }); count++; }
+    }
+    return count;
+  }
+
   // logs sorted ascending by date, only those with any data
   function logsArray() {
     var logs = getLogs(), arr = [];
@@ -178,7 +192,7 @@
     SCHEMA: SCHEMA,
     getSettings: getSettings, setSettings: setSettings, defaultSettings: defaultSettings,
     blankLog: blankLog, getLog: getLog, getLogs: getLogs, saveLog: saveLog,
-    patchLog: patchLog, logsArray: logsArray,
+    patchLog: patchLog, logsArray: logsArray, backfillClean: backfillClean,
     getRelapses: getRelapses, addRelapse: addRelapse, relapseOnDate: relapseOnDate,
     getUrges: getUrges, bankUrge: bankUrge, urgesOnDate: urgesOnDate,
     getMeta: getMeta, setMeta: setMeta,

@@ -241,6 +241,25 @@ No new files (logic folded into existing modules); service-worker cache bumped t
 > from weight, plus an in-app accelerometer walk-session) **or** repackaging as a native wrapper
 > (Capacitor/TWA) for true background counting. See the plan file for the full spec.
 
+## Increment 3.2 — Catch up your streak (backfill)
+
+The whole app is **derived**: "Day N" comes from your start date, but your **streak** (which
+Immortal Power, Magnetism and Your Stage all key off) only counts days you actually marked
+**clean**. If you held clean for weeks before you started tapping it in daily, the streak — and
+everything built on it — reads near zero even though the calendar shows Day 21. This was a
+record-keeping gap, not a reference bug (the code already uses the live streak everywhere).
+
+- **`store.backfillClean(fromISO, toISO)`** marks every **unlogged** day in a range as clean and
+  returns the count. It is honest by construction — it **never** overwrites a day you already
+  answered (clean/slip) or any relapse day, so you can only record real history, not erase it.
+- **Settings → "Catch up your streak"**: pick a *clean-since* date (defaults to your start date)
+  and one tap records those days, so streak / rank / Power / stage immediately reflect them.
+- **Today** shows a gentle **"Catch up your streak"** banner when there are ≥2 unlogged days
+  between your start and today, linking straight to the tool (and disappearing once it's done).
+
+9 new self-test assertions (the symptom, the integrity guards, idempotency, the resulting
+streak) — `node tools/selftest.js` → **116 passed**. Service-worker cache bumped to **v9**.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web
