@@ -291,6 +291,67 @@ passed**. No new files; service-worker cache bumped to **v10**.
 > read your native step counter and use *Set today's steps*. True background counting would need
 > the native-wrapper path still parked in the plan.
 
+## Increment 4 — The Awakened Engine (rota · oracle · foresight · sanctum)
+
+The earlier increments made the app *proactive*; Increment 4 makes it **agentic** — it
+reads your world (your rota, your ledger, the sky), reasons over it on-device, and acts
+with one-tap confirmations. Still 100% offline: the "AI" is local, explainable and yours.
+Three new modules (`rota.js` → `RTI_ROTA`, `sanctum.js` → `RTI_SANCTUM`, `oracle.js` →
+`RTI_ORACLE`), five new engine functions, three new screens. SW cache → **v11**.
+
+**🗓 The Rota — upload your shifts once, the app plans your days** (`rota.js`,
+`app.js` `screenRota`, `config.rota`)
+- **Import wizard**: paste or pick your rota as **CSV**, **calendar (.ics)** — e.g. an NHS
+  e-roster export — or **plain text**. Auto-detects the format; robust UK **day-first** date
+  parsing (`06/07/2026`, `6 Jul 2026`, `Mon 14th July`, 2-digit years, ICS all-day spans).
+- **Job-role presets** (NHS nursing/HCA, NHS doctor, police, factory, office, custom) pre-map
+  shift codes (`E L N LD OFF AL SB…`) onto nine shift kinds (Day/Early/Late/Night/Long day/
+  On-call/Rest/Leave/Sick); unknown codes get a manual mapping step, remembered for next time.
+  Built deliberately generic so it can one day be published for anyone with a rota.
+- **Month calendar** (tap a day to set/clear a shift), **“Repeat a pattern”** generator
+  (`4D 4OFF`, `Nx3 2E R`…), *Next up* list with typical shift times, month totals.
+- **“Apply to day plans”** writes each day’s shift/rest **nutrition day-type** from the rota —
+  and **never overwrites a day you already answered** (same honesty rule as streak backfill).
+- **Rota-aware coach**: when today is unplanned, the Today card asks first — *“Your rota says
+  **Night shift** today. Confirm?”* — one tap sets the plan. Rota is included in Export/Import.
+
+**🔮 The Oracle — an on-device agentic coach** (`oracle.js`, `app.js` `screenOracle`)
+- A conversation screen with **zero network**: a local intent engine reads what you type
+  (or say — mic input via Web Speech where available, spoken replies behind a Settings toggle)
+  and answers **from your own ledger**: status, streak, risk tonight, what’s left to eat,
+  next shift, rank horizon, the moon, wisdom.
+- It **acts, with consent**: “I walked 12,000 steps” → the Oracle proposes *Log 12,000 steps*;
+  nothing is written until you tap. Same for meditation/breath/sleep/mood/clean, opening the
+  urge flow, or starting a breath session. The Oracle proposes — the owner confirms.
+- A daily **whisper** (one data-grounded line) now sits under the coach card on Today.
+
+**👁 Foresight — the prophecy engine** (`engine.js` `riskForecast` / `streakHistory` /
+`survivalOutlook` / `rankETA` / `weeklyProphecy`, `config.foresight`, Oracle → *Sight* tab)
+- **Tonight’s risk**: an additive, fully **explainable** 0–100 forecast — every factor is
+  named and signed (*Early in the streak +20 · The danger hour +14 · Night shift tonight +8 ·
+  Streak protection −25*). Weights are config tunables; the UI carries the standing caveat
+  *association, not fate*.
+- **Survival outlook** (how many past streaks made it beyond this point), **rank horizon**
+  (projected dates at your real clean-rate), and an auto-written **Weekly Prophecy**
+  (clean days, adherence, mood/sleep averages, chi earned, finest day, one focus line).
+
+**🕉 The Sanctum — breath · mala · cosmos** (`sanctum.js`, `app.js` `screenSanctum`,
+`config.sanctum`)
+- **Pranayama studio**: Box, 4·7·8 Descent, Coherent 5.5, Inner-Fire rounds (tummo-style,
+  with the safety note), Nadi Shodhana — an orb that breathes with you, per-phase countdown,
+  haptic phase ticks, reduced-motion safe; finishing **banks the minutes into `breathingMin`**
+  (so it feeds Chi and the coach automatically).
+- **Japa mala**: 108-bead tap counter with quarter-mark glows, malas held, and an honest
+  bank-as-meditation confirm at the end.
+- **Cosmic clock**: moon phase + illumination, and — once a *sacred location* is set in
+  Settings (device-only; a one-tap geolocation fill) — sunrise, sunset and the
+  **Brahma Muhurta** window (sunrise −96 → −48 min). All **pure astronomy math computed
+  on-device** (NOAA solar + synodic moon), zero network.
+
+All new logic is pure and covered: **73 new self-test assertions** (rota parsing incl. ICS
+expansion + never-overwrite, foresight determinism + bands, moon/sun/brahma math incl. polar
+edges, oracle intent + number extraction) — `node tools/selftest.js` → **207 passed, 0 failed**.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

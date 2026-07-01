@@ -7,7 +7,7 @@
    localStorage, never fetched).
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v10';
+var CACHE = 'rti-shell-v11';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -18,6 +18,9 @@ var SHELL = [
   './store.js',
   './engine.js',
   './photos.js',
+  './rota.js',
+  './sanctum.js',
+  './oracle.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',

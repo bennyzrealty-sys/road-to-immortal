@@ -13,12 +13,13 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
 
 var S = global.RTI_STORE, E = global.RTI_ENGINE, U = global.RTI_UTIL, P = global.RTI_PHOTO;
+var R = global.RTI_ROTA, SAN = global.RTI_SANCTUM, ORA = global.RTI_ORACLE;
 var pass = 0, fail = 0;
 function check(name, got, want) {
   var ok = JSON.stringify(got) === JSON.stringify(want);
@@ -357,6 +358,228 @@ check('detector counts 20 brisk steps', simWalk(20, 450, E.createStepDetector())
 check('detector counts 30 slow steps', simWalk(30, 650, E.createStepDetector()), 30);
 check('detector ignores stillness', (function () { var d = E.createStepDetector(); for (var t = 0; t < 8000; t += 20) d.push(9.81, t); return d.count(); })(), 0);
 check('detector debounces one sustained peak to 1', (function () { var d = E.createStepDetector(); for (var t = 0; t < 2000; t += 20) d.push(14, t); return d.count(); })(), 1);
+
+// ---- increment 4: rota — dates, parsers, patterns, mapping, apply ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+// normalizeDate: UK day-first everywhere, wordy forms, hard rejects
+check('rota normalizeDate numeric forms (ISO/slash/dot/dash/2-digit/ctx-year)',
+  [R.normalizeDate('2026-07-06'), R.normalizeDate('06/07/2026'), R.normalizeDate('06.07.2026'),
+   R.normalizeDate('06-07-2026'), R.normalizeDate('6/7/26'), R.normalizeDate('06/07', 2026)].join('|'),
+  '2026-07-06|2026-07-06|2026-07-06|2026-07-06|2026-07-06|2026-07-06');
+check('rota normalizeDate wordy forms (weekday prefix / ordinal / Month D)',
+  [R.normalizeDate('Mon 6 Jul 2026'), R.normalizeDate('July 6th, 2026'), R.normalizeDate('6 July 2026')].join('|'),
+  '2026-07-06|2026-07-06|2026-07-06');
+check('rota normalizeDate rejects impossible/junk dates',
+  [R.normalizeDate('31/02/2026'), R.normalizeDate('2026-13-01'), R.normalizeDate('not a date'), R.normalizeDate('06/07')],
+  [null, null, null, null]);
+// parseCSV: date,code rows; header row skipped; unparseable row -> warning
+var rcsv = R.parseCSV('Date,Shift\n06/07/2026,N\n07/07/2026,LD\nnonsense,XX');
+check('rota parseCSV date,code rows (header skipped)', rcsv.entries,
+  [{ date: '2026-07-06', code: 'N', note: '' }, { date: '2026-07-07', code: 'LD', note: '' }]);
+check('rota parseCSV bad row -> 1 warning', rcsv.warnings.length, 1);
+// parseICS: minimal VCALENDAR incl. a 2-day all-day event (DTEND exclusive)
+var ricsText = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260706\r\nSUMMARY:N\r\nEND:VEVENT\r\n' +
+  'BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260708\r\nDTEND;VALUE=DATE:20260710\r\nSUMMARY:LD\r\nEND:VEVENT\r\nEND:VCALENDAR';
+var rics = R.parseICS(ricsText);
+check('rota parseICS dates (2-day all-day expands)',
+  rics.entries.map(function (e) { return e.date; }).join('|'), '2026-07-06|2026-07-08|2026-07-09');
+check('rota parseICS short summaries -> uppercase codes', rics.codes, ['N', 'LD']);
+// parseText: a date window anywhere in the line, the tail becomes the code
+var rtxt = R.parseText('Mon 6 Jul 2026 — Night\n2026-07-07: LD');
+check('rota parseText wordy line -> date + night kind',
+  rtxt.entries[0].date + '|' + R.guessKind(rtxt.entries[0].code), '2026-07-06|night');
+check('rota parseText ISO-colon line', rtxt.entries[1], { date: '2026-07-07', code: 'LD', note: '' });
+check('rota parse auto-detects ics/csv/text',
+  R.parse(ricsText).format + '|' + R.parse('Date;Shift\n06/07/2026;N').format + '|' + R.parse('Mon 6 Jul 2026 — Night').format,
+  'ics|csv|text');
+// patterns: '4D 4OFF' and the repeat spellings, cycled over real dates
+check('rota parsePattern repeats (4D 4OFF / Nx3 / 2xE)',
+  R.parsePattern('4D 4OFF').join(',') + ';' + R.parsePattern('Nx3, 2xE D').join(','),
+  'D,D,D,D,OFF,OFF,OFF,OFF;N,N,N,E,E,D');
+var rexp = R.expandPattern('2026-07-06', ['D', 'OFF'], 5);
+check('rota expandPattern cycles from the anchor',
+  rexp.map(function (e) { return e.code; }).join(',') + '|' + rexp[4].date, 'D,OFF,D,OFF,D|2026-07-10');
+// guessKind: preset exact match, then keyword substring, then null
+check('rota guessKind (preset / keyword / garbage)',
+  [R.guessKind('N'), R.guessKind('Night shift'), R.guessKind('QQQ')], ['night', 'night', null]);
+// applyEntries merges into the stored rota; queries read it back
+var rap = R.applyEntries([
+  { date: '2026-07-06', code: 'n' }, { date: '2026-07-07', code: 'ld' }, { date: null, code: 'X' }
+], { n: 'night', ld: 'long' });
+check('rota applyEntries uppercases + skips bad rows', rap, { added: 2, days: ['2026-07-06', '2026-07-07'] });
+var rso = R.shiftOn('2026-07-06');
+check('rota shiftOn mapped day', rso.code + '/' + rso.kindId + '/' + rso.kind.dayType, 'N/night/shift');
+check('rota shiftOn empty day -> null', R.shiftOn('2026-07-20'), null);
+R.setShift('2026-07-09', 'zzz'); // an unmapped code for the tallies below
+var rnk = R.nextOfKind('long', '2026-07-05');
+check('rota nextOfKind scans forward from fromISO+1', rnk.date + '|' + rnk.inDays, '2026-07-07|2');
+var rup = R.upcoming('2026-07-05', 7);
+check('rota upcoming lists entries incl. unmapped', rup.length + '|' + rup[2].code + '|' + rup[2].kindId, '3|ZZZ|null');
+var rmc = R.monthCounts('2026-07');
+check('rota monthCounts by kind + unmapped',
+  rmc.total + '/' + (rmc.byKind.night || 0) + '/' + (rmc.byKind.long || 0) + '/' + rmc.unmapped, '3/1/1/1');
+// applyDayTypes: an answered dayType is sacred — NEVER overwritten
+S.patchLog('2026-07-06', { nutrition: { dayType: 'rest', templateId: null, meals: {} } });
+check('rota applyDayTypes sets unanswered, skips answered',
+  R.applyDayTypes('2026-07-06', '2026-07-09'), { set: 1, skipped: 1 });
+check('rota applyDayTypes preserved rest / wrote shift',
+  S.getLog('2026-07-06').nutrition.dayType + '|' + S.getLog('2026-07-07').nutrition.dayType, 'rest|shift');
+check('rota applyDayTypes idempotent second pass', R.applyDayTypes('2026-07-06', '2026-07-09'), { set: 0, skipped: 2 });
+// setShift single-day set/clear + clearRange sweep
+R.setShift('2026-07-08', 'e');
+var rs8 = R.shiftOn('2026-07-08');
+R.setShift('2026-07-08', null);
+check('rota setShift set then clear', rs8.code + '/' + rs8.kindId + '|' + (R.shiftOn('2026-07-08') === null), 'E/early|true');
+check('rota clearRange removes and reports',
+  R.clearRange('2026-07-01', '2026-07-31') + '|' + (R.shiftOn('2026-07-06') === null), '3|true');
+
+// ---- increment 4: foresight — risk, streak history, outlook, ETA, prophecy ----
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+function fdelta(rf, id) {
+  for (var fdi = 0; fdi < rf.factors.length; fdi++) if (rf.factors[fdi].id === id) return rf.factors[fdi].delta;
+  return 0;
+}
+// blank ledger: base 15 + earlyStreak 22 and nothing else -> 37 elevated
+var rf0 = E.riskForecast(st, '2026-06-26', null, null);
+check('risk blank ledger score|band', rf0.score + '|' + rf0.band, '37|elevated');
+check('risk blank ledger names its one factor', rf0.factors,
+  [{ id: 'earlyStreak', label: 'Early in the streak', delta: 22 }]);
+// the danger hour wraps midnight; midday is clear
+check('risk danger hour 23h/02h(wrap)/12h',
+  E.riskForecast(st, '2026-06-26', 23, null).score + '|' + E.riskForecast(st, '2026-06-26', 2, null).score + '|' +
+  E.riskForecast(st, '2026-06-26', 12, null).score, '51|51|37');
+check('risk night shift tonight +8', E.riskForecast(st, '2026-06-26', null, 'night').score, 45);
+// urges: only the last `days` (3) count toward the capped delta
+S.bankUrge(1, '2026-06-25'); S.bankUrge(2, '2026-06-24'); S.bankUrge(3, '2026-06-23');
+check('risk urges: 2 in window, 3rd too old', fdelta(E.riskForecast(st, '2026-06-26', null, null), 'urges'), 10);
+// short sleep averaged over the last 3 logged days
+S.patchLog('2026-06-26', { sleepHrs: 5 }); S.patchLog('2026-06-25', { sleepHrs: 5 }); S.patchLog('2026-06-24', { sleepHrs: 5 });
+check('risk short sleep this week', fdelta(E.riskForecast(st, '2026-06-26', null, null), 'shortSleep'), 10);
+S.patchLog('2026-06-25', { mood: 2 });
+check('risk low mood yesterday', fdelta(E.riskForecast(st, '2026-06-26', null, null), 'lowMood'), 10);
+// weekday pattern: 3 Friday relapses flag Fridays (capped at weight), not Wednesdays
+S.addRelapse({ date: '2026-06-12', note: '', streakLengthAtReset: 0 });
+S.addRelapse({ date: '2026-06-19', note: '', streakLengthAtReset: 0 });
+S.addRelapse({ date: '2026-06-26', note: '', streakLengthAtReset: 0 });
+check('risk weekday pattern: Fri capped 16 / Wed 0',
+  fdelta(E.riskForecast(st, '2026-06-26', null, null), 'weekdayPattern') + '|' +
+  fdelta(E.riskForecast(st, '2026-06-24', null, null), 'weekdayPattern'), '16|0');
+// a long streak protects: 60 clean days clamp the score to the floor
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var f6 = 0; f6 < 60; f6++) { var df6 = U.addDays('2026-06-08', f6); S.saveLog(df6, Object.assign(S.blankLog(df6), { clean: true })); }
+var rf60 = E.riskForecast(st, U.addDays('2026-06-08', 59), null, null);
+check('risk 60-day streak clamped low', rf60.score + '|' + rf60.band, '0|low');
+check('risk protection deltas (streak/shields)',
+  fdelta(rf60, 'streakProtect') + '|' + fdelta(rf60, 'shieldProtect'), '-30|-8');
+check('risk streak protection lowers the score', rf60.score < rf0.score, true);
+// streakHistory / survivalOutlook: two completed streaks (5, 3), current run 4
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+function markDay(i, clean) { var d = U.addDays('2026-06-08', i); S.saveLog(d, Object.assign(S.blankLog(d), { clean: clean })); }
+for (var h1 = 0; h1 < 5; h1++) markDay(h1, true);
+markDay(5, false);
+for (var h2 = 6; h2 < 9; h2++) markDay(h2, true);
+markDay(9, false);
+for (var h3 = 10; h3 < 14; h3++) markDay(h3, true);
+var hAsOf = U.addDays('2026-06-08', 13);
+var hist = E.streakHistory(st, hAsOf);
+check('streakHistory completed streaks only (current excluded)', hist.streaks, [5, 3]);
+check('streakHistory median|longest', hist.median + '|' + hist.longest, '4|5');
+check('survivalOutlook vs past streaks', E.survivalOutlook(st, hAsOf),
+  { current: 4, past: 2, madeItBeyond: 1, sharePct: 50 });
+// rankETA: perfect 19-day record projects the next 4 ranks
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var e1 = 0; e1 < 19; e1++) { var de1 = U.addDays('2026-06-08', e1); S.saveLog(de1, Object.assign(S.blankLog(de1), { clean: true })); }
+var eta = E.rankETA(st, '2026-06-26');
+check('rankETA perfect record: rate 1, 4 projections', eta.cleanRate + '|' + eta.projections.length, '1|4');
+check('rankETA first projection (reach 21 in 2 days)',
+  eta.projections[0].daysAway + '|' + eta.projections[0].etaISO, '2|2026-06-28');
+check('rankETA projections ordered by distance',
+  eta.projections[0].daysAway < eta.projections[1].daysAway &&
+  eta.projections[1].daysAway < eta.projections[2].daysAway &&
+  eta.projections[2].daysAway < eta.projections[3].daysAway, true);
+// weeklyProphecy: a fully seeded week ending asOf
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var w1 = 0; w1 < 7; w1++) {
+  var dw = U.addDays('2026-06-20', w1);
+  var lgw = Object.assign(S.blankLog(dw), { clean: true, steps: 10000, sleepHrs: 7.5, mood: 4, breathingMin: 20, meditationMin: 10 });
+  if (w1 === 6) lgw.nutrition = { dayType: 'shift', templateId: 'shiftA', meals: { B: 'eaten', L: 'eaten', S: 'eaten', T: 'eaten', D: 'eaten' } };
+  S.saveLog(dw, lgw);
+}
+var wpr = E.weeklyProphecy(st, '2026-06-26');
+check('prophecy window', wpr.from + '|' + wpr.to, '2026-06-20|2026-06-26');
+check('prophecy clean|answered|urges', wpr.cleanDays + '|' + wpr.answered + '|' + wpr.urges, '7|7|0');
+check('prophecy mood|sleep|adherence', wpr.avgMood + '|' + wpr.avgSleep + '|' + wpr.adherencePct, '4|7.5|100');
+check('prophecy best day = the full-plan day', wpr.bestDate, '2026-06-26');
+check('prophecy chi earned > 0', wpr.chiEarned > 0, true);
+
+// ---- increment 4: sanctum — breath plans, moon, sun, brahma muhurta ----
+var mEpoch = SAN.moonPhase('2000-01-06');
+check('moon epoch day ~new (age wraps the seam)',
+  mEpoch.name === 'New' && (mEpoch.ageDays < 2 || mEpoch.ageDays > 27.7), true);
+var mFull = SAN.moonPhase('2026-01-03');
+check('moon 2026-01-03 is Full, >=97% lit', mFull.name === 'Full' && mFull.illumPct >= 97, true);
+// TZ-robust sun assertions: relations + daylight length, never clock times
+var lonSun = SAN.sunTimes('2026-06-21', 51.5074, -0.1278);
+check('sun London midsummer: rise < noon < set',
+  lonSun.polar === null && lonSun.sunriseMin < lonSun.solarNoonMin && lonSun.solarNoonMin < lonSun.sunsetMin, true);
+check('sun London midsummer daylight 16.5-18h',
+  (lonSun.sunsetMin - lonSun.sunriseMin) >= 990 && (lonSun.sunsetMin - lonSun.sunriseMin) <= 1080, true);
+check('sun HH:MM strings agree with the minutes',
+  lonSun.sunrise === SAN.fmtMin(lonSun.sunriseMin) && /^\d\d:\d\d$/.test(lonSun.sunset), true);
+check('sun polar flags at 80N (Jun day / Dec night)',
+  SAN.sunTimes('2026-06-21', 80, 0).polar + '|' + SAN.sunTimes('2026-12-21', 80, 0).polar, 'day|night');
+check('sun rejects bad coordinates',
+  SAN.sunTimes('2026-06-21', 91, 0) === null && SAN.sunTimes('2026-06-21', null, 0) === null &&
+  SAN.sunTimes('2026-06-21', 51.5, 181) === null, true);
+var bmuh = SAN.brahmaMuhurta('2026-06-21', 51.5074, -0.1278);
+check('brahma muhurta = sunrise -96 -> -48 min',
+  bmuh.startMin === lonSun.sunriseMin - 96 && bmuh.endMin === lonSun.sunriseMin - 48 &&
+  bmuh.start === SAN.fmtMin(bmuh.startMin) && bmuh.end === SAN.fmtMin(bmuh.endMin), true);
+check('brahma muhurta null when polar', SAN.brahmaMuhurta('2026-06-21', 80, 0), null);
+var spBox = SAN.sessionPlan('box', 5);
+check('sessionPlan box 5min -> 19 cycles of 16s', spBox.cycles + '|' + spBox.totalSec + '|' + spBox.minutes, '19|304|5');
+var sp478 = SAN.sessionPlan('relax478', 4);
+check('sessionPlan 4-7-8 4min -> 13 cycles of 19s', sp478.cycles + '|' + sp478.totalSec + '|' + sp478.minutes, '13|247|4');
+check('cycleSeconds coherent 5.5+5.5 / unknown id null',
+  SAN.cycleSeconds(SAN.patternById('coherent')) + '|' + (SAN.patternById('nope') === null), '11|true');
+check('fmtMin pads and wraps', SAN.fmtMin(75) + '|' + SAN.fmtMin(-20) + '|' + SAN.fmtMin(1500), '01:15|23:40|01:00');
+
+// ---- increment 4: oracle — intent NLU, composed replies, whisper ----
+function itp(s) { var r = ORA.interpret(s); return r.intent + '|' + r.n; }
+check('oracle reads status/streak/risk',
+  ORA.interpret('how am I doing?').intent + '|' + ORA.interpret('what is my streak').intent + '|' +
+  ORA.interpret('will I relapse tonight?').intent, 'status|streak|risk');
+check('oracle steps + comma number', itp('12,000 steps'), 'logSteps|12000');
+check('oracle walked + k multiplier', itp('walked 10k'), 'logSteps|10000');
+check('oracle meditation minutes', itp('meditated 20 minutes'), 'logMeditation|20');
+check('oracle sleep hours (decimal)', itp('slept 7.5 hours'), 'logSleep|7.5');
+check('oracle reads clean/shift/help/moon/rank',
+  ORA.interpret('mark today clean').intent + '|' + ORA.interpret('when is my next shift').intent + '|' +
+  ORA.interpret('help').intent + '|' + ORA.interpret('moon').intent + '|' +
+  ORA.interpret('when do i reach the next rank').intent, 'markClean|nextshift|help|moon|rank');
+check('oracle gibberish -> unknown', ORA.interpret('flibber jabberwock').intent, 'unknown');
+// respond: the Oracle proposes, the owner confirms
+var oSteps = ORA.respond('12,000 steps', {});
+check('oracle respond steps: one confirm action + prose',
+  oSteps.actions.length === 1 && oSteps.actions[0].act === 'steps' && oSteps.actions[0].payload === 12000 &&
+  oSteps.text.length > 0 && oSteps.say.length > 0, true);
+var oClean = ORA.respond('mark today clean', {});
+check('oracle respond markClean proposes, never writes',
+  oClean.actions[0].act + '|' + oClean.actions[0].payload, 'clean|true');
+var oRisk = ORA.respond('what is my risk tonight', { asOf: '2026-06-26', risk: { score: 48, band: 'elevated', factors: [
+  { id: 'weekdayPattern', label: 'Fridays have broken you before', delta: 16 },
+  { id: 'streakProtect', label: 'Streak protection', delta: -10 }
+] } });
+check('oracle respond risk cites score + top factor',
+  oRisk.text.indexOf('48') >= 0 && oRisk.text.indexOf('Fridays have broken you before') >= 0, true);
+check('oracle respond risk offers two outs when not low', oRisk.actions.length, 2);
+var oUrge = ORA.respond('i am struggling right now', {});
+check('oracle urge -> ride-out + 4-7-8',
+  oUrge.actions[0].act + '|' + oUrge.actions[1].act + '|' + oUrge.actions[1].payload, 'urge|breathwork|relax478');
+check('oracle whisper deterministic per day',
+  ORA.whisper({ asOf: '2026-06-26' }) === ORA.whisper({ asOf: '2026-06-26' }) &&
+  ORA.whisper({ asOf: '2026-06-26' }).length > 0, true);
+check('oracle whisper survives an empty ctx', typeof ORA.whisper({}) === 'string' && ORA.whisper({}).length > 0, true);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

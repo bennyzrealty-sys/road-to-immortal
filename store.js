@@ -19,7 +19,8 @@
     logs:     'rti_logs_v1',
     relapses: 'rti_relapses_v1',
     urges:    'rti_urges_v1',   // [{ ts: epochMs, date: 'YYYY-MM-DD' }]
-    meta:     'rti_meta_v1'     // { lastSeenRankIndex, lastExportISO, prereg, ... }
+    meta:     'rti_meta_v1',    // { lastSeenRankIndex, lastExportISO, prereg, ... }
+    rota:     'rti_rota_v1'     // { shifts: {date: 'CODE'}, codeMap: {CODE: kindId}, role }
   };
   var SCHEMA = 1;
 
@@ -45,7 +46,10 @@
       dailyTargets: CFG.dailyTargets.slice(),
       lastNutritionTemplate: null,
       mealOverrides: {},     // { templateId: { mealKey: { kcal, protein } } } — owner edits
-      reducedMotion: false   // user toggle; OS preference also respected
+      reducedMotion: false,  // user toggle; OS preference also respected
+      latitude: null,        // sacred location — used ONLY on this device for
+      longitude: null,       //   sunrise & Brahma Muhurta; never sent anywhere
+      oracleVoice: false     // speak Oracle replies aloud (speechSynthesis)
     };
   }
   function getSettings() {
@@ -148,6 +152,28 @@
     return getUrges().filter(function (u) { return u.date === date; }).length;
   }
 
+  /* ---------------- Rota (increment 4 — shift calendar) ---------------- */
+  // shifts:  { 'YYYY-MM-DD': 'CODE' } — raw rota codes, stored uppercase
+  // codeMap: { 'CODE': 'kindId' }    — what each code means (CFG.rota.kinds)
+  // role:    preset id (CFG.rota.rolePresets) or null
+  function defaultRota() {
+    return { shifts: {}, codeMap: {}, role: null };
+  }
+  function getRota() {
+    var r = read(K.rota, null);
+    if (!r) { r = defaultRota(); write(K.rota, r); }
+    // merge any newly-added default keys (same idiom as getSettings)
+    var d = defaultRota(), out = {};
+    for (var k in d) out[k] = (r[k] === undefined ? d[k] : r[k]);
+    return out;
+  }
+  function setRota(patch) {
+    var r = getRota();
+    for (var k in patch) r[k] = patch[k];
+    write(K.rota, r);
+    return r;
+  }
+
   /* ---------------- Meta (app bookkeeping, not "truth") ---------------- */
   function getMeta() {
     return read(K.meta, { lastSeenRankIndex: -1, lastExportISO: null, prereg: '', preregLocked: false });
@@ -169,7 +195,8 @@
       logs: getLogs(),
       relapses: getRelapses(),
       urges: getUrges(),
-      meta: getMeta()
+      meta: getMeta(),
+      rota: getRota()
     };
   }
   // returns { ok, error } — overwrites all local data on success.
@@ -181,6 +208,8 @@
     write(K.relapses, Array.isArray(obj.relapses) ? obj.relapses : []);
     write(K.urges, Array.isArray(obj.urges) ? obj.urges : []);
     write(K.meta, obj.meta && typeof obj.meta === 'object' ? obj.meta : getMeta());
+    // rota is optional so older backups (pre-increment-4) never fail to import
+    write(K.rota, obj.rota && typeof obj.rota === 'object' ? obj.rota : defaultRota());
     return { ok: true };
   }
 
@@ -196,6 +225,7 @@
     getRelapses: getRelapses, addRelapse: addRelapse, relapseOnDate: relapseOnDate,
     getUrges: getUrges, bankUrge: bankUrge, urgesOnDate: urgesOnDate,
     getMeta: getMeta, setMeta: setMeta,
+    defaultRota: defaultRota, getRota: getRota, setRota: setRota,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };
 })(typeof window !== 'undefined' ? window : this);

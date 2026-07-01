@@ -543,6 +543,152 @@
         { title: 'The Long Game', body: 'Charisma is not a trick performed tonight; it is the residue of a thousand kept promises. Become magnetic by becoming trustworthy to yourself.' },
         { title: 'Rooted, Not Rigid', body: 'Be so anchored that you can bend with grace. Flexibility from strength reads as confidence; flexibility from fear reads as collapse.' }
       ]
+    },
+
+    /* ==== INCREMENT 4 — THE AWAKENED ENGINE — rota · foresight · sanctum · oracle ==== */
+
+    /* ---- Rota: shift-work vocabulary, role presets and keyword guesses ----
+       Pure configuration for rota.js. The `kinds` array is the vocabulary
+       every rota code maps onto. `work:true` kinds suggest a 'shift'
+       nutrition day-type; others suggest 'rest'. start/end are typical
+       times (display only — never used for logic). */
+    rota: {
+      kinds: [
+        { id: 'day',    label: 'Day shift',    ic: '☀️', color: '#ffce6a', work: true,  dayType: 'shift', start: '07:30', end: '19:30' },
+        { id: 'early',  label: 'Early',        ic: '🌅', color: '#5be0a0', work: true,  dayType: 'shift', start: '07:00', end: '15:00' },
+        { id: 'late',   label: 'Late',         ic: '🌇', color: '#ffb347', work: true,  dayType: 'shift', start: '13:00', end: '21:30' },
+        { id: 'night',  label: 'Night shift',  ic: '🌙', color: '#9a6bff', work: true,  dayType: 'shift', start: '19:30', end: '08:00' },
+        { id: 'long',   label: 'Long day',     ic: '⏳', color: '#62d8ff', work: true,  dayType: 'shift', start: '07:30', end: '20:00' },
+        { id: 'oncall', label: 'On call',      ic: '📟', color: '#c98bff', work: true,  dayType: 'shift', start: null, end: null },
+        { id: 'rest',   label: 'Off / rest',   ic: '🛌', color: '#6a6f99', work: false, dayType: 'rest',  start: null, end: null },
+        { id: 'leave',  label: 'Annual leave', ic: '🌿', color: '#8fd0a8', work: false, dayType: 'rest',  start: null, end: null },
+        { id: 'sick',   label: 'Sick',         ic: '🌡', color: '#ff7aa8', work: false, dayType: 'rest',  start: null, end: null }
+      ],
+      // job-role presets: common code → kind-id maps (publishable defaults; user can remap)
+      rolePresets: [
+        { id: 'nhs',     label: 'NHS nursing / HCA',
+          map: { 'E': 'early', 'L': 'late', 'LD': 'long', 'N': 'night', 'ND': 'night', 'D': 'day',
+                 'DAY': 'day', 'NOC': 'night', 'TW': 'day', 'OFF': 'rest', 'O': 'rest', 'R': 'rest',
+                 'RD': 'rest', 'DO': 'rest', 'AL': 'leave', 'A/L': 'leave', 'ANN': 'leave',
+                 'SL': 'sick', 'SICK': 'sick', 'SB': 'oncall', 'OC': 'oncall', 'ONC': 'oncall', 'S': 'late' } },
+        { id: 'nhsdoc',  label: 'NHS doctor',
+          map: { 'N': 'night', 'NOC': 'night', 'LD': 'long', 'D': 'day', 'DAY': 'day', 'OC': 'oncall',
+                 'ONC': 'oncall', 'SPA': 'day', 'CL': 'day', 'TH': 'day', 'Z': 'rest', 'OFF': 'rest',
+                 'R': 'rest', 'AL': 'leave', 'SL': 'sick' } },
+        { id: 'police',  label: 'Police / emergency',
+          map: { 'E': 'early', 'L': 'late', 'N': 'night', 'D': 'day', 'RD': 'rest', 'OFF': 'rest',
+                 'AL': 'leave', 'TR': 'day' } },
+        { id: 'factory', label: 'Factory / warehouse',
+          map: { 'AM': 'early', 'PM': 'late', 'N': 'night', 'D': 'day', 'OFF': 'rest', 'R': 'rest', 'HOL': 'leave' } },
+        { id: 'office',  label: 'Office / 9-to-5',
+          map: { 'WFH': 'day', 'OFC': 'day', 'D': 'day', 'OFF': 'rest', 'AL': 'leave' } },
+        { id: 'custom',  label: 'Custom / other', map: {} }
+      ],
+      // keyword → kind guesses for free text / ICS summaries (checked in order, lowercase substring)
+      keywordKinds: [
+        { kw: 'night', kind: 'night' }, { kw: 'noc', kind: 'night' },
+        { kw: 'long day', kind: 'long' }, { kw: 'long', kind: 'long' },
+        { kw: 'early', kind: 'early' }, { kw: 'late', kind: 'late' },
+        { kw: 'twilight', kind: 'late' }, { kw: 'eve', kind: 'late' },
+        { kw: 'on call', kind: 'oncall' }, { kw: 'on-call', kind: 'oncall' }, { kw: 'standby', kind: 'oncall' },
+        { kw: 'annual leave', kind: 'leave' }, { kw: 'leave', kind: 'leave' }, { kw: 'holiday', kind: 'leave' },
+        { kw: 'sick', kind: 'sick' },
+        { kw: 'off', kind: 'rest' }, { kw: 'rest', kind: 'rest' }, { kw: 'rota free', kind: 'rest' },
+        { kw: 'day off', kind: 'rest' },
+        { kw: 'am', kind: 'early' }, { kw: 'pm', kind: 'late' },
+        { kw: 'day', kind: 'day' }, { kw: 'shift', kind: 'day' }
+      ]
+    },
+
+    /* ---- Foresight: explainable relapse-risk forecast ----
+       Additive factor model, clamped 0-100. Every weight is a tunable,
+       every factor is NAMED in the UI. Association, not fate — the score
+       reads the owner's own history, it never predicts other people or
+       promises outcomes. */
+    foresight: {
+      base: 15,
+      earlyStreak: { horizon: 14, weight: 22 },     // risk fades linearly over first `horizon` clean days
+      weekdayPattern: { minRelapses: 3, weight: 16 }, // if ≥minRelapses and today's weekday rate > average
+      urges: { days: 3, perUrge: 5, cap: 15 },       // banked urges in last `days`
+      shortSleep: { hours: 6.5, days: 3, weight: 10 },
+      lowMood: { threshold: 2, weight: 10 },         // yesterday's mood ≤ threshold
+      dangerHour: { from: 22, to: 5, weight: 14 },   // the late window (wraps midnight)
+      nightShift: { weight: 8 },                     // tonight is a rota night shift
+      streakProtect: { ref: 60, weight: 30 },        // protection grows with streak toward ref days
+      shieldProtect: { perShield: 4 },
+      bands: { elevated: 35, high: 60 }              // score < elevated → 'low'
+    },
+
+    /* ---- Sanctum: guided pranayama, japa mala and the cosmic clock ----
+       Breath patterns are phase lists in seconds; cycles are computed from
+       the chosen minutes (sanctum.js does the math). Japa banks minutes as
+       meditation only on confirm. Cosmos is pure local astronomy — nothing
+       leaves the device. */
+    sanctum: {
+      // guided pranayama — phases in seconds; cycles computed from chosen minutes
+      patterns: [
+        { id: 'box',      name: 'Box Breath',        sub: 'Sama Vritti · 4-4-4-4',  minutes: 5,
+          note: 'The soldier\'s calm. Equal sides, square mind.',
+          phases: [ { label: 'Inhale', secs: 4, kind: 'in' }, { label: 'Hold', secs: 4, kind: 'hold' },
+                    { label: 'Exhale', secs: 4, kind: 'out' }, { label: 'Hold', secs: 4, kind: 'hold' } ] },
+        { id: 'relax478', name: '4·7·8 Descent',     sub: 'the off-switch',          minutes: 4,
+          note: 'Long exhale tells the body the danger has passed. Use it in the danger hour.',
+          phases: [ { label: 'Inhale', secs: 4, kind: 'in' }, { label: 'Hold', secs: 7, kind: 'hold' },
+                    { label: 'Exhale', secs: 8, kind: 'out' } ] },
+        { id: 'coherent', name: 'Coherent Breath',   sub: 'resonance · 5.5 / 5.5',   minutes: 10,
+          note: 'The monk\'s baseline. Five and a half in, five and a half out, nothing else.',
+          phases: [ { label: 'Inhale', secs: 5.5, kind: 'in' }, { label: 'Exhale', secs: 5.5, kind: 'out' } ] },
+        { id: 'tummo',    name: 'Inner Fire Rounds', sub: 'tummo-style · 30 + hold', minutes: 8,
+          note: 'Thirty strong breaths, then sit in the empty hold. Never in water, never standing.',
+          phases: [ { label: 'Breathe strong ×30', secs: 75, kind: 'in' }, { label: 'Empty hold', secs: 60, kind: 'hold' },
+                    { label: 'Recovery inhale — hold', secs: 15, kind: 'in' } ] },
+        { id: 'nadi',     name: 'Nadi Shodhana',     sub: 'alternate nostril',       minutes: 6,
+          note: 'Left in, right out; right in, left out. The channels sweep clean.',
+          phases: [ { label: 'Inhale LEFT', secs: 4, kind: 'in' }, { label: 'Hold', secs: 4, kind: 'hold' },
+                    { label: 'Exhale RIGHT', secs: 8, kind: 'out' }, { label: 'Inhale RIGHT', secs: 4, kind: 'in' },
+                    { label: 'Hold', secs: 4, kind: 'hold' }, { label: 'Exhale LEFT', secs: 8, kind: 'out' } ] }
+      ],
+      // japa — the mala
+      japa: {
+        beads: 108, quarterMark: 27, minutesPerMala: 8,   // banked as meditation only on confirm
+        mantras: [
+          { id: 'om',      text: 'ॐ',                    translit: 'Om',                  meaning: 'the first vibration' },
+          { id: 'namah',   text: 'ॐ नमः शिवाय',           translit: 'Om Namah Shivaya',    meaning: 'bow to the inner self' },
+          { id: 'soham',   text: 'सोऽहम्',                translit: 'So\'ham',             meaning: 'I am That — ride it on the breath' },
+          { id: 'mani',    text: 'ॐ मणि पद्मे हूँ',        translit: 'Om Mani Padme Hum',   meaning: 'the jewel in the lotus' },
+          { id: 'gayatri', text: 'ॐ भूर्भुवः स्वः',        translit: 'Om Bhur Bhuvah Svah', meaning: 'the Gayatri seed — light that awakens' }
+        ]
+      },
+      // cosmic clock: pure local astronomy. Brahma Muhurta = sunrise − 96 min → sunrise − 48 min.
+      cosmos: { brahmaStartMin: 96, brahmaEndMin: 48 }
+    },
+
+    /* ---- Oracle: the on-device conversational ledger-reader ----
+       oracle.js composes every answer from the owner's OWN data via the
+       engine — no network, no external model. These strings set the voice:
+       mystical-but-honest, never a promise about other people. */
+    oracle: {
+      name: 'The Oracle',
+      greetings: [
+        'Ask, and the record answers. Nothing is hidden from your own ledger.',
+        'The Oracle reads only what you have written. Speak.',
+        'I keep your account. Ask me what the road shows.'
+      ],
+      unknown: [
+        'That is beyond this ledger. Ask about your streak, your risk, your food, your rota — or say "help".',
+        'The record is silent on that. Say "help" to see what I can read and do.'
+      ],
+      // one-line whisper templates surfaced on Today (deterministic daily rotation)
+      whisperIntro: '🔮 ',
+      // capability lines for the `help` intent — what the Oracle can READ and DO.
+      // oracle.js may render these directly; purely additive, safe to ignore.
+      helpLines: [
+        'READ — "status" · "streak" · "risk tonight" · "weekly prophecy" · "what\'s left to eat" · "next shift" · "rota today" · "rank eta" · "power" · "moon / sunrise"',
+        'DO — "12000 steps" · "meditated 20" · "breathing 10" · "slept 7.5" · "mood 4" · "mark today clean" (you confirm every write with a tap)',
+        'HOLD — say "urge" or "struggling" and I will stand with you: the 90-second ride-out and the 4·7·8 breath.',
+        'SPEAK — "wisdom" draws a line from the Codex.',
+        'I read only this device\'s ledger. Association, not fate — and nothing leaves the room.'
+      ]
     }
   };
 

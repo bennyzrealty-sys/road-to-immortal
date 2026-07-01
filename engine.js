@@ -591,6 +591,197 @@
     };
   }
 
+  /* =====================================================================
+     INCREMENT 4 — THE AWAKENED ENGINE (Foresight: pure derived forecasts)
+     ---------------------------------------------------------------------
+     Everything below is derived from the owner's own record. Association,
+     not fate: every factor is named, every weight lives in CFG.foresight,
+     and nothing here is stored — it is recomputed on every read. The
+     engine never reads the clock or the rota itself; `hour` and
+     `rotaKindId` are passed in by the caller.
+     ===================================================================== */
+  var DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  /* ---------- riskForecast: explainable additive relapse-risk model ----------
+     score = clamp(round(base + Σ deltas), 0, 100). Only NON-ZERO factors are
+     returned, each with a human label, so the UI can always show WHY. */
+  function riskForecast(settings, asOf, hour, rotaKindId) {
+    var fc = CFG.foresight;
+    if (!fc) return { score: 0, band: 'low', factors: [] }; // tunables absent -> neutral
+    var streak = streakAsOf(settings, asOf);
+    var factors = [];
+    function add(id, label, delta) { if (delta) factors.push({ id: id, label: label, delta: delta }); }
+
+    // early streak: risk fades linearly over the first `horizon` clean days
+    var es = fc.earlyStreak;
+    add('earlyStreak', 'Early in the streak',
+        Math.round(es.weight * Math.max(0, es.horizon - streak.current) / es.horizon));
+
+    // weekday pattern: does THIS weekday carry more than its share of relapses?
+    var wp = fc.weekdayPattern, relapses = S.getRelapses();
+    if (relapses.length >= wp.minRelapses) {
+      var wd = U.fromISO(asOf).getDay(), onWd = 0;
+      for (var ri = 0; ri < relapses.length; ri++)
+        if (U.fromISO(relapses[ri].date).getDay() === wd) onWd++;
+      var rate = onWd / relapses.length, mean = 1 / 7; // mean rate across the 7 weekdays
+      if (rate > mean)
+        add('weekdayPattern', DAY_NAMES[wd] + 's have broken you before',
+            Math.min(wp.weight, Math.round(wp.weight * (rate - mean) / Math.max(mean, 0.0001))));
+    }
+
+    // urges banked in the last `days` days (asOf inclusive)
+    var uc = fc.urges, urges = S.getUrges(), nUrges = 0;
+    for (var ui = 0; ui < urges.length; ui++) {
+      var back = U.daysBetween(urges[ui].date, asOf);
+      if (back >= 0 && back < uc.days) nUrges++;
+    }
+    if (nUrges > 0)
+      add('urges', nUrges + ' urge' + (nUrges === 1 ? '' : 's') + ' in the last ' + uc.days + ' days',
+          Math.min(uc.cap, uc.perUrge * nUrges));
+
+    // short sleep: mean of the non-null sleepHrs over the last `days` days
+    var ss = fc.shortSleep, slSum = 0, slN = 0;
+    for (var si = 0; si < ss.days; si++) {
+      var sLog = S.getLog(U.addDays(asOf, -si));
+      if (sLog.sleepHrs != null && isFinite(+sLog.sleepHrs)) { slSum += +sLog.sleepHrs; slN++; }
+    }
+    if (slN > 0 && slSum / slN < ss.hours) add('shortSleep', 'Short sleep this week', ss.weight);
+
+    // low mood yesterday
+    var lm = fc.lowMood, yLog = S.getLog(U.addDays(asOf, -1));
+    if (yLog.mood != null && +yLog.mood <= lm.threshold) add('lowMood', 'Low mood yesterday', lm.weight);
+
+    // the danger hour (wraps midnight); hour may be null -> skip
+    var dh = fc.dangerHour;
+    if (hour != null) {
+      var inDanger = dh.from < dh.to ? (hour >= dh.from && hour < dh.to)
+                                     : (hour >= dh.from || hour < dh.to);
+      if (inDanger) add('dangerHour', 'The danger hour', dh.weight);
+    }
+
+    // tonight is a rota night shift (caller passes the kind id or null)
+    if (rotaKindId === 'night') add('nightShift', 'Night shift tonight', fc.nightShift.weight);
+
+    // protection: the streak itself, and shields held (negative deltas)
+    var sp = fc.streakProtect;
+    add('streakProtect', 'Streak protection', -Math.round(sp.weight * Math.min(1, streak.current / sp.ref)));
+    add('shieldProtect', 'Shields held', -(fc.shieldProtect.perShield * streak.shields));
+
+    var sum = fc.base;
+    for (var fi = 0; fi < factors.length; fi++) sum += factors[fi].delta;
+    var score = U.clamp(Math.round(sum), 0, 100);
+    var band = score >= fc.bands.high ? 'high' : (score >= fc.bands.elevated ? 'elevated' : 'low');
+    return { score: score, band: band, factors: factors };
+  }
+
+  /* ---------- streakHistory: every COMPLETED past streak ----------
+     Same replay semantics as streakAsOf: shields absorb a break (streak
+     survives — nothing recorded), unlogged days hold the streak but reset
+     the perfect-week counter. A streak is COMPLETED only when a break
+     actually resets it to 0. The current ongoing streak is NOT included. */
+  function streakHistory(settings, asOf) {
+    var start = settings.startDate;
+    if (U.daysBetween(start, asOf) < 0) return { streaks: [], median: null, longest: 0 };
+    var total = Math.max(0, U.daysBetween(start, asOf));
+    var streaks = [], streak = 0, shields = 0, week = 0;
+    var maxShields = CFG.shields.maxStored, perWeek = CFG.shields.perPerfectWeekDays;
+    for (var i = 0; i <= total; i++) {
+      var st = dayStatus(U.addDays(start, i));
+      if (st === 'clean') {
+        streak++; week++;
+        if (week >= perWeek) { shields = Math.min(maxShields, shields + 1); week = 0; }
+      } else if (st === 'broken') {
+        if (shields > 0) { shields--; week = 0; }          // absorbed: streak survives, nothing recorded
+        else { if (streak > 0) streaks.push(streak); streak = 0; week = 0; } // real reset -> completed
+      } else { week = 0; }                                 // unlogged: hold streak, lose the week
+    }
+    var longest = 0;
+    for (var j = 0; j < streaks.length; j++) if (streaks[j] > longest) longest = streaks[j];
+    var median = null;
+    if (streaks.length) {
+      var srt = streaks.slice().sort(function (a, b) { return a - b; });
+      var mid = Math.floor(srt.length / 2);
+      median = srt.length % 2 ? srt[mid] : (srt[mid - 1] + srt[mid]) / 2;
+    }
+    return { streaks: streaks, median: median, longest: longest };
+  }
+
+  /* ---------- survivalOutlook: how far past streaks got vs the current one ---------- */
+  function survivalOutlook(settings, asOf) {
+    var current = streakAsOf(settings, asOf).current;
+    var hist = streakHistory(settings, asOf);
+    var past = hist.streaks.length, beyond = 0;
+    for (var i = 0; i < past; i++) if (hist.streaks[i] > current) beyond++;
+    return {
+      current: current, past: past, madeItBeyond: beyond,
+      sharePct: past ? Math.round(100 * beyond / past) : null
+    };
+  }
+
+  /* ---------- rankETA: projected arrival dates at the next ranks ----------
+     cleanRate over the whole answered history (like performanceSummary);
+     floor 0.05 so a thin record never projects an absurd horizon. */
+  function rankETA(settings, asOf) {
+    var elapsed = Math.max(0, U.daysBetween(settings.startDate, asOf));
+    var clean = 0, answered = 0;
+    for (var i = 0; i <= elapsed; i++) {
+      var st = dayStatus(U.addDays(settings.startDate, i));
+      if (st === 'clean') { clean++; answered++; }
+      else if (st === 'broken') answered++;
+    }
+    var cleanRate = clean / Math.max(1, answered);
+    var streak = streakAsOf(settings, asOf);
+    var projections = [], ranks = CFG.RANKS;
+    for (var r = 0; r < ranks.length && projections.length < 4; r++) {
+      if (ranks[r].reach <= streak.current) continue;      // already reached (by streak)
+      var daysAway = Math.ceil((ranks[r].reach - streak.current) / Math.max(cleanRate, 0.05));
+      projections.push({ name: ranks[r].name, reach: ranks[r].reach,
+                         daysAway: daysAway, etaISO: U.addDays(asOf, daysAway) });
+    }
+    return { cleanRate: cleanRate, projections: projections };
+  }
+
+  /* ---------- weeklyProphecy: the 7 days ENDING asOf, summarised ----------
+     adherence only over days with a chosen plan; chiEarned slices the
+     single-pass chiSeries (no duplicate replay); bestDate by simple score
+     clean=2, allTargets=1, proteinHit=1, 10k steps=1 (ties -> latest). */
+  function weeklyProphecy(settings, asOf) {
+    var from = U.addDays(asOf, -6), to = asOf;
+    var targets = settings.dailyTargets || CFG.dailyTargets;
+    var cleanDays = 0, answered = 0, adhSum = 0, adhN = 0;
+    var moodSum = 0, moodN = 0, slpSum = 0, slpN = 0, urges = 0, trialsWon = 0;
+    var bestDate = null, bestScore = 0;
+    for (var i = 0; i < 7; i++) {
+      var date = U.addDays(from, i), st = dayStatus(date), log = S.getLog(date);
+      if (st === 'clean') { cleanDays++; answered++; }
+      else if (st === 'broken') answered++;
+      var adh = nutritionAdherence(log);
+      if (adh.chosen) { adhSum += adh.adherence; adhN++; }
+      if (log.mood != null) { moodSum += +log.mood; moodN++; }
+      if (log.sleepHrs != null && isFinite(+log.sleepHrs)) { slpSum += +log.sleepHrs; slpN++; }
+      urges += S.urgesOnDate(date);
+      if (dailyTrial(settings, date).done) trialsWon++;
+      var done = log.todayTargetsDone || [];
+      var allT = done.length === targets.length && done.length > 0
+                 && done.every(function (b) { return b === true; });
+      var score = (st === 'clean' ? 2 : 0) + (allT ? 1 : 0)
+                + (adh.proteinHit ? 1 : 0) + (num(log.steps) >= 10000 ? 1 : 0);
+      if (score > 0 && score >= bestScore) { bestScore = score; bestDate = date; } // ties -> latest
+    }
+    var cs = chiSeries(settings, asOf), chiEarned = 0;
+    for (var j = 0; j < cs.series.length; j++) {
+      if (U.daysBetween(from, cs.series[j].date) >= 0) chiEarned += cs.series[j].earned;
+    }
+    return {
+      from: from, to: to, cleanDays: cleanDays, answered: answered,
+      adherencePct: adhN ? Math.round(adhSum / adhN * 100) : null,
+      avgMood: moodN ? U.round(moodSum / moodN, 1) : null,
+      avgSleep: slpN ? U.round(slpSum / slpN, 1) : null,
+      urges: urges, chiEarned: Math.round(chiEarned),
+      bestDate: bestDate, trialsWon: trialsWon
+    };
+  }
+
   /* ---------- full snapshot for the UI ---------- */
   function snapshot(asOf) {
     var settings = S.getSettings();
@@ -621,6 +812,8 @@
     shareCardData: shareCardData,
     strideMeters: strideMeters, distanceKm: distanceKm, metForCadence: metForCadence,
     caloriesForSteps: caloriesForSteps, caloriesForSession: caloriesForSession,
-    movementSummary: movementSummary, createStepDetector: createStepDetector
+    movementSummary: movementSummary, createStepDetector: createStepDetector,
+    riskForecast: riskForecast, streakHistory: streakHistory,
+    survivalOutlook: survivalOutlook, rankETA: rankETA, weeklyProphecy: weeklyProphecy
   };
 })(typeof window !== 'undefined' ? window : this);

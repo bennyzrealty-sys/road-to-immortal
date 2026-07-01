@@ -5,6 +5,9 @@
 (function () {
   'use strict';
   var U = window.RTI_UTIL, CFG = window.RTI_CONFIG, S = window.RTI_STORE, E = window.RTI_ENGINE;
+  // increment 4 modules (rota / sanctum / oracle). May be undefined if a script
+  // failed to load — every call site guards, showing a note instead of crashing.
+  var R = window.RTI_ROTA, SAN = window.RTI_SANCTUM, ORA = window.RTI_ORACLE;
   var appEl = document.getElementById('app');
   var tabsEl = document.getElementById('tabs');
   var fab = document.getElementById('urge-fab');
@@ -383,6 +386,22 @@
   function cpBtn(act, label, cls, mk) { return '<button class="btn sm ' + (cls || '') + '" data-cp="' + act + '"' + (mk ? ' data-mk="' + mk + '"' : '') + '>' + esc(label) + '</button>'; }
   function coachPrimary(ag) {
     var p = ag.primary; if (!p) return '';
+    // increment 4 — rota-aware day-type prompt: when today's rota code maps to a
+    // known kind, offer a one-tap confirm instead of the blank question. [Change]
+    // sets state._coachChange, which swaps back to the standard two buttons for
+    // one render (the flag is consumed below, so it clears on the next render).
+    if (p.kind === 'daytype' && R && !state._coachChange) {
+      try {
+        var sh = R.shiftOn(today()), kk = sh && sh.kind ? sh.kind : null;
+        if (kk && kk.dayType) {
+          var rctrls = cpBtn('rota-confirm', 'Confirm ' + (kk.dayType === 'shift' ? 'Shift' : 'Rest') + ' day', 'gold', kk.dayType) +
+            cpBtn('rota-change', 'Change', '');
+          return '<div class="coach-primary"><div class="cp-q">Your rota says <b>' + esc(kk.label) + '</b> today.</div>' +
+            '<div class="cp-ctrls">' + rctrls + '</div></div>';
+        }
+      } catch (e) {}
+    }
+    if (p.kind === 'daytype') state._coachChange = false; // consume the flag — next render offers the rota prompt again
     var q = p.label, ctrls = '';
     switch (p.kind) {
       case 'daytype': q = 'Is today a shift day or a rest day?'; ctrls = cpBtn('shift', 'Shift day', 'gold') + cpBtn('rest', 'Rest day', ''); break;
@@ -411,12 +430,23 @@
     var planHint = (blockedPlan && pend.every(function (it) { return it.kind !== 'meal'; })) ?
       '<div class="tiny faint" style="margin-top:8px">Pick a day-type &amp; plan to unlock meal logging.</div>' : '';
     var allDone = ag.pendingCount === 0;
+    // increment 4 — the Oracle's daily whisper, one tiny italic line. Fully
+    // guarded: if the oracle module (or any engine piece it reads) is missing
+    // or throws, the coach card simply renders without it.
+    var whisper = '';
+    try {
+      if (ORA && CFG.oracle) {
+        var wtxt = ORA.whisper(buildOracleCtx());
+        if (wtxt) whisper = '<div class="tiny muted" style="margin-top:12px;font-style:italic">' + esc(CFG.oracle.whisperIntro + wtxt) + '</div>';
+      }
+    } catch (e) {}
     return '<div class="card coach">' +
       '<div class="coach-head"><div class="grow"><div class="day-num">' + esc(ag.greet) + ' · Day ' + snap.day + '</div>' +
         '<div class="tiny muted">' + esc(ag.line) + '</div></div>' + ring + '</div>' +
       (allDone ?
         '<div class="flag info" style="margin:12px 0 0">✓ Everything timely is logged. The line holds — rest in it.</div>' :
         coachPrimary(ag) + (list ? '<div class="coach-list">' + list + '</div>' : '') + planHint) +
+      whisper +
     '</div>';
   }
   function wireCoach() {
@@ -425,6 +455,10 @@
       b.onclick = function () {
         var a = b.getAttribute('data-cp');
         if (a === 'shift' || a === 'rest') { var nn = S.getLog(d).nutrition || {}; nn.dayType = a; nn.templateId = null; S.patchLog(d, { nutrition: nn }); state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
+        // increment 4 — rota-aware coach: confirm applies the rota's day-type
+        // (carried in data-mk) exactly like the shift/rest buttons above.
+        if (a === 'rota-confirm') { var rdt = b.getAttribute('data-mk') || 'shift'; var rn = S.getLog(d).nutrition || {}; rn.dayType = rdt; rn.templateId = null; S.patchLog(d, { nutrition: rn }); state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'rota-change') { state._coachChange = true; render(); return; }
         if (a === 'held') { S.patchLog(d, { clean: true }); toast('Held. The line holds.'); render(); return; }
         if (a === 'slip') { S.patchLog(d, { clean: false }); toast('Logged honestly. Begin again.'); render(); return; }
         if (a === 'breath') { quickAction('breath', b); return; }
@@ -567,6 +601,8 @@
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
+      '<button class="btn ghost full" data-go="sanctum" style="margin-top:10px">🕉 Sanctum — breath · mala · cosmos</button>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach(); wireTrial();
 
@@ -1533,6 +1569,753 @@
     };
   }
 
+  /* =================== INCREMENT 4 — ROTA · ORACLE · SANCTUM (stage 1) =================== */
+  // Shared context bundle for the Oracle (whisper + conversation). Every piece
+  // is fetched inside its own try/catch so one missing module or engine
+  // function can never take the whole screen down.
+  function buildOracleCtx() {
+    var s = S.getSettings(), asOf = today(), hour = new Date().getHours();
+    var ctx = { settings: s, asOf: asOf, hour: hour, snap: null, risk: null, prophecy: null,
+      eta: null, outlook: null, nut: null, rotaToday: null, upcoming: [], moon: null, sun: null, brahma: null };
+    try { ctx.snap = E.snapshot(asOf); } catch (e) {}
+    try { ctx.rotaToday = R ? R.shiftOn(asOf) : null; } catch (e) {}
+    try { ctx.upcoming = (R && R.upcoming(asOf, 14)) || []; } catch (e) {}
+    try { ctx.risk = E.riskForecast ? E.riskForecast(s, asOf, hour, ctx.rotaToday ? ctx.rotaToday.kindId : null) : null; } catch (e) {}
+    try { ctx.prophecy = E.weeklyProphecy ? E.weeklyProphecy(s, asOf) : null; } catch (e) {}
+    try { ctx.eta = E.rankETA ? E.rankETA(s, asOf) : null; } catch (e) {}
+    try { ctx.outlook = E.survivalOutlook ? E.survivalOutlook(s, asOf) : null; } catch (e) {}
+    try { ctx.nut = E.nutritionAdherence(S.getLog(asOf)); } catch (e) {}
+    try { ctx.moon = SAN ? SAN.moonPhase(asOf) : null; } catch (e) {}
+    try { if (SAN && s.latitude != null && s.longitude != null) ctx.sun = SAN.sunTimes(asOf, s.latitude, s.longitude); } catch (e) {}
+    try { if (SAN && s.latitude != null && s.longitude != null) ctx.brahma = SAN.brahmaMuhurta(asOf, s.latitude, s.longitude); } catch (e) {}
+    return ctx;
+  }
+
+  /* ---- ROTA — shift calendar, import, patterns (increment 4) ---- */
+  function rotaKinds() { return (CFG.rota && CFG.rota.kinds) || []; }
+  function rotaKindById(id) {
+    try { if (R && R.kindById) return R.kindById(id); } catch (e) {}
+    var ks = rotaKinds();
+    for (var i = 0; i < ks.length; i++) if (ks[i].id === id) return ks[i];
+    return null;
+  }
+  // normCode with a local fallback so a partial rota module can't crash the UI
+  function normCodeSafe(c) {
+    try { var n = R && R.normCode ? R.normCode(c) : null; if (n) return n; } catch (e) {}
+    var t = (c == null ? '' : String(c)).replace(/^\s+|\s+$/g, '').toUpperCase();
+    return t || null;
+  }
+  // existing mapped code for a kind if the codeMap has one, else the kind id uppercased
+  function codeForKind(kindId, rota) {
+    var cm = (rota && rota.codeMap) || {};
+    for (var c in cm) if (cm[c] === kindId) return c;
+    return String(kindId).toUpperCase();
+  }
+  // prefill for the import mapper: the chosen role preset's map wins, then kindFor
+  function prefillKind(code, roleId, rota) {
+    var norm = normCodeSafe(code);
+    var presets = (CFG.rota && CFG.rota.rolePresets) || [];
+    for (var i = 0; i < presets.length; i++) {
+      if (presets[i].id === roleId && presets[i].map && norm && presets[i].map[norm]) return presets[i].map[norm];
+    }
+    try { return R && R.kindFor ? R.kindFor(code, rota) : null; } catch (e) { return null; }
+  }
+  var ROTA_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function rotaMonthLabel(ym) { return ROTA_MONTHS[(+ym.slice(5, 7)) - 1] + ' ' + ym.slice(0, 4); }
+  function shiftRotaMonth(ym, delta) {
+    var d = new Date(+ym.slice(0, 4), (+ym.slice(5, 7)) - 1 + delta, 15); // mid-month = DST-safe
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+  }
+  // Mon-first month grid; each cell shows the day number + kind icon, tinted
+  // with the kind colour at low alpha, with a gold ring on today.
+  function rotaCalendarHtml(ym, rota) {
+    var first = ym + '-01';
+    var firstDow = (U.fromISO(first).getDay() + 6) % 7;                       // Mon=0 … Sun=6
+    var daysInMonth = new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0).getDate();
+    var start = U.addDays(first, -firstDow);
+    var cells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+    var t = today(), dows = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'], out = '';
+    for (var i = 0; i < 7; i++) out += '<div class="rota-dow">' + dows[i] + '</div>';
+    for (var c = 0; c < cells; c++) {
+      var dISO = U.addDays(start, c), inMonth = dISO.slice(0, 7) === ym;
+      var sh = null; try { sh = R.shiftOn(dISO, rota); } catch (e) {}
+      var k = sh && sh.kind ? sh.kind : null;
+      var tint = (k && k.color) ? ' style="background:' + k.color + '22"' : '';
+      out += '<div class="rota-cell' + (inMonth ? '' : ' dim') + (dISO === t ? ' today' : '') + '" data-rd="' + dISO + '"' + tint + '>' +
+        '<span class="dn">' + (+dISO.slice(8, 10)) + '</span>' +
+        '<span class="ic">' + (k ? k.ic : (sh ? '·' : '')) + '</span></div>';
+    }
+    return '<div class="rota-cal">' + out + '</div>';
+  }
+  // tap-a-day picker: buttons from CFG.rota.kinds + Clear day
+  function openRotaDayPicker(dateISO) {
+    var rota = S.getRota(), cur = null;
+    try { cur = R.shiftOn(dateISO, rota); } catch (e) {}
+    var btns = rotaKinds().map(function (k) {
+      var on = cur && cur.kindId === k.id;
+      return '<button class="btn' + (on ? ' gold' : '') + '" data-rk="' + esc(k.id) + '" style="justify-content:flex-start">' + k.ic + ' ' + esc(k.label) + '</button>';
+    }).join('');
+    var ov = h('<div class="overlay" style="overflow-y:auto">' +
+      '<div class="day-num">' + esc(dateISO) + (cur ? ' · ' + esc(cur.code) : '') + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;width:min(380px,88vw);margin-top:12px">' + btns + '</div>' +
+      '<button class="btn ghost sm" data-rk="__clear" style="margin-top:14px;color:#ff8aa8">Clear day</button>' +
+      '<button class="btn ghost sm" data-rk="__close" style="margin-top:8px">cancel</button></div>');
+    document.body.appendChild(ov);
+    ov._cleanup = function () { ov.remove(); };
+    ov.querySelectorAll('[data-rk]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-rk');
+        if (id === '__close') { ov.remove(); return; }
+        if (id === '__clear') { try { R.setShift(dateISO, null); } catch (e) {} ov.remove(); render(); return; }
+        // write the CODE for that kind (existing mapped code, else the kind id
+        // uppercased) and make sure the codeMap knows what it means.
+        var code = codeForKind(id, S.getRota());
+        try { R.setShift(dateISO, code); } catch (e) {}
+        var cm = {}, old = S.getRota().codeMap || {};
+        for (var kk in old) cm[kk] = old[kk];
+        cm[code] = id;
+        S.setRota({ codeMap: cm });
+        ov.remove(); render();
+      };
+    });
+  }
+  // Import wizard — step 1: role preset + paste/file + Parse; step 2: map codes → kinds, Apply.
+  function openRotaImport() {
+    var rota = S.getRota();
+    var presets = (CFG.rota && CFG.rota.rolePresets) || [];
+    var roleOpts = presets.map(function (p) {
+      return '<option value="' + esc(p.id) + '"' + (rota.role === p.id ? ' selected' : '') + '>' + esc(p.label) + '</option>';
+    }).join('');
+    var ov = h('<div class="overlay" style="justify-content:flex-start;overflow-y:auto;padding-top:36px">' +
+      '<div class="day-num">IMPORT YOUR ROTA</div>' +
+      '<div class="card" style="width:min(440px,92vw);text-align:left">' +
+        '<label class="field"><span>Your job / role (code presets)</span><select id="ri-role">' + roleOpts + '</select></label>' +
+        '<label class="field"><span>Paste your rota — CSV, calendar (.ics) or plain text</span>' +
+          '<textarea id="ri-text" style="min-height:130px" placeholder="2026-07-06, N&#10;Mon 6 Jul — Night shift&#10;06/07/2026 LD"></textarea></label>' +
+        '<label class="field"><span>…or pick a file</span><input type="file" id="ri-file" accept=".csv,.ics,.txt,text/csv,text/calendar,text/plain"></label>' +
+        '<button class="btn gold full" id="ri-parse">Parse</button>' +
+        '<div class="tiny faint" style="margin-top:8px">Read entirely on this device — nothing is uploaded, ever.</div>' +
+      '</div>' +
+      '<button class="btn ghost sm" id="ri-close" style="margin-top:4px">cancel</button></div>');
+    document.body.appendChild(ov);
+    ov._cleanup = function () { ov.remove(); };
+    ov.querySelector('#ri-close').onclick = ov._cleanup;
+    ov.querySelector('#ri-file').onchange = function (e) {
+      var f = e.target.files && e.target.files[0]; if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () { ov.querySelector('#ri-text').value = String(rd.result || ''); };
+      rd.readAsText(f);
+    };
+    ov.querySelector('#ri-parse').onclick = function () {
+      var text = ov.querySelector('#ri-text').value;
+      if (!text || !text.replace(/\s/g, '')) { toast('Paste your rota (or pick a file) first.'); return; }
+      var roleId = ov.querySelector('#ri-role').value;
+      var res = null;
+      try { res = R.parse(text); } catch (e) {}
+      if (!res || !res.entries || !res.entries.length) { toast('Could not find any dated entries in that.'); return; }
+      rotaImportStep2(ov, res, roleId);
+    };
+  }
+  function rotaImportStep2(ov, res, roleId) {
+    var rota = S.getRota(), kinds = rotaKinds();
+    var codesArr = res.codes || [];
+    // entry count per (normalized) code, for the mapping rows
+    var counts = {};
+    res.entries.forEach(function (en) { var c = normCodeSafe(en.code); if (c) counts[c] = (counts[c] || 0) + 1; });
+    function kindOpts(sel) {
+      var o = '<option value="">— leave unmapped —</option>';
+      kinds.forEach(function (k) { o += '<option value="' + esc(k.id) + '"' + (sel === k.id ? ' selected' : '') + '>' + k.ic + ' ' + esc(k.label) + '</option>'; });
+      return o;
+    }
+    var rowsH = codesArr.map(function (code, i) {
+      var norm = normCodeSafe(code);
+      return '<div class="row" style="align-items:center;margin:8px 0"><div class="grow" style="overflow:hidden;text-overflow:ellipsis"><b>' + esc(code) + '</b> <span class="tiny faint">× ' + (counts[norm] || 0) + '</span></div>' +
+        '<select data-ric="' + i + '" style="width:180px;flex:0 0 auto">' + kindOpts(prefillKind(code, roleId, rota)) + '</select></div>';
+    }).join('');
+    var warnH = (res.warnings && res.warnings.length) ?
+      '<div class="flag amber" style="margin-top:10px">⚠ <span>' + res.warnings.map(function (w) { return esc(w); }).join('<br>') + '</span></div>' : '';
+    ov.innerHTML = '<div class="day-num">IMPORT · MAP YOUR CODES</div>' +
+      '<div class="card" style="width:min(440px,92vw);text-align:left">' +
+        '<div class="tiny muted">Found <b>' + res.entries.length + '</b> dated entries (' + esc(res.format || 'text') + ') · ' + codesArr.length + ' unique code' + (codesArr.length === 1 ? '' : 's') + '. Tell the rota what each one means.</div>' +
+        rowsH + warnH +
+        '<button class="btn gold full" id="ri-apply" style="margin-top:12px">Apply to rota</button>' +
+      '</div>' +
+      '<button class="btn ghost sm" id="ri-back" style="margin-top:4px">‹ back</button>';
+    ov.querySelector('#ri-back').onclick = function () { ov.remove(); openRotaImport(); };
+    ov.querySelector('#ri-apply').onclick = function () {
+      var map = {};
+      ov.querySelectorAll('[data-ric]').forEach(function (sel) {
+        var key = normCodeSafe(codesArr[+sel.getAttribute('data-ric')]);
+        if (key && sel.value) map[key] = sel.value;
+      });
+      var applied = null;
+      try { applied = R.applyEntries(res.entries, map); } catch (e) {}
+      if (!applied) { toast('Could not apply — nothing was written.'); return; }
+      S.setRota({ role: roleId });
+      toast(applied.added + ' rota day' + (applied.added === 1 ? '' : 's') + ' imported.');
+      var range = applied.days;
+      ov.remove();
+      // honest opt-in: never silently rewrites day plans
+      if (range && range[0] && confirm('Also set day plans (shift / rest) for ' + range[0] + ' → ' + range[1] + '? Days you already answered are never touched.')) {
+        var r2 = null; try { r2 = R.applyDayTypes(range[0], range[1]); } catch (e) {}
+        if (r2) toast(r2.set + ' days planned · ' + r2.skipped + ' already answered');
+      }
+      render();
+    };
+  }
+  function screenRota() {
+    if (!R) {
+      var mh = '<div class="screen">' + header('Rota') +
+        '<div class="card"><p class="muted" style="margin:0">Rota module missing — rota.js did not load. Reload the app.</p></div></div>';
+      appEl.innerHTML = ''; appEl.appendChild(h(mh)); return;
+    }
+    var ym = state._rotaMonth || (state._rotaMonth = today().slice(0, 7));
+    var rota = S.getRota(), kinds = rotaKinds();
+    var legend = '<div class="rota-legend">' + kinds.map(function (k) {
+      return '<span style="border-color:' + k.color + '55">' + k.ic + ' ' + esc(k.label) + '</span>';
+    }).join('') + '</div>';
+    // next 7 days that have a rota entry
+    var up = []; try { up = R.upcoming(today(), 7) || []; } catch (e) {}
+    var dowNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var upH = up.length ? up.map(function (u) {
+      var k = u.kind;
+      return '<div class="row" style="justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.05)">' +
+        '<span class="muted tiny">' + dowNames[U.fromISO(u.date).getDay()] + ' ' + esc(u.date.slice(5)) + '</span>' +
+        '<span>' + (k ? k.ic + ' ' + esc(k.label) : esc(u.code) + ' <span class="tiny faint">unmapped</span>') +
+        (k && k.start ? ' <span class="tiny faint">' + esc(k.start) + '–' + esc(k.end) + '</span>' : '') + '</span></div>';
+    }).join('') : '<p class="faint tiny">Nothing on the rota for the next 7 days. Import it or tap days above.</p>';
+    // month tallies
+    var mc = null; try { mc = R.monthCounts(ym); } catch (e) {}
+    var mcH;
+    if (mc && mc.total) {
+      var chips = [];
+      kinds.forEach(function (k) { var n = mc.byKind && mc.byKind[k.id]; if (n) chips.push('<span style="border-color:' + k.color + '55">' + k.ic + ' ' + esc(k.label) + ' × ' + n + '</span>'); });
+      if (mc.unmapped) chips.push('<span>❓ unmapped × ' + mc.unmapped + '</span>');
+      mcH = '<div class="rota-legend" style="margin-top:0">' + chips.join('') + '</div>' +
+        '<div class="tiny faint" style="margin-top:8px">' + mc.total + ' rota day' + (mc.total === 1 ? '' : 's') + ' this month.</div>';
+    } else mcH = '<p class="faint tiny">No rota entries this month yet.</p>';
+
+    var html = '<div class="screen">' + header('Rota') +
+      '<div class="card">' +
+        '<div class="row" style="align-items:center;justify-content:space-between">' +
+          '<button class="btn sm" data-rm="prev">‹</button>' +
+          '<b>' + esc(rotaMonthLabel(ym)) + '</b>' +
+          '<button class="btn sm" data-rm="next">›</button></div>' +
+        rotaCalendarHtml(ym, rota) + legend +
+        '<div class="tiny faint" style="margin-top:8px">Tap a day to set or clear its shift.</div>' +
+      '</div>' +
+      '<div class="card"><h3>Next up</h3>' + upH + '</div>' +
+      '<div class="card"><h3>This month</h3>' + mcH + '</div>' +
+      '<div class="card"><h3>Import your rota</h3>' +
+        '<div class="tiny muted" style="margin-bottom:10px">Paste or pick your rota — CSV, calendar (.ics) or plain text. Parsed entirely on this device; nothing leaves it.</div>' +
+        '<button class="btn gold full" id="ro-import">⤒ Import rota</button></div>' +
+      '<div class="card"><h3>Repeat a pattern</h3>' +
+        '<div class="tiny muted" style="margin-bottom:4px">e.g. “4D 4OFF” — four day shifts then four off, cycling from the anchor date.</div>' +
+        '<label class="field"><span>Anchor date (pattern day 1)</span><input type="date" id="rp-anchor" value="' + today() + '"></label>' +
+        '<label class="field"><span>Pattern</span><input type="text" id="rp-pattern" placeholder="4D 4OFF"></label>' +
+        '<label class="field"><span>Weeks to fill</span><input type="number" inputmode="numeric" id="rp-weeks" value="4" min="1" max="26"></label>' +
+        '<div id="rp-preview" style="margin:6px 0 10px"></div>' +
+        '<div class="btn-grid"><button class="btn cyan" id="rp-prev">Preview</button><button class="btn gold" id="rp-apply">Apply</button></div></div>' +
+      '<div class="card"><h3>Apply to day plans</h3>' +
+        '<div class="tiny muted" style="margin-bottom:4px">Sets each day’s shift/rest nutrition plan from the rota. Days you already answered are never overwritten.</div>' +
+        '<label class="field"><span>From</span><input type="date" id="ap-from" value="' + today() + '"></label>' +
+        '<label class="field"><span>To</span><input type="date" id="ap-to" value="' + U.addDays(today(), 30) + '"></label>' +
+        '<button class="btn cyan full" id="ap-go">Plan those days</button></div>' +
+      '<div class="card"><h3>Clear range</h3>' +
+        '<label class="field"><span>From</span><input type="date" id="cr-from" value="' + today() + '"></label>' +
+        '<label class="field"><span>To</span><input type="date" id="cr-to" value="' + U.addDays(today(), 30) + '"></label>' +
+        '<button class="btn full" id="cr-go" style="border-color:rgba(255,107,138,.4);color:#ffc2cf">Clear rota entries</button></div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+
+    appEl.querySelectorAll('[data-rm]').forEach(function (b) {
+      b.onclick = function () { state._rotaMonth = shiftRotaMonth(ym, b.getAttribute('data-rm') === 'prev' ? -1 : 1); render(); };
+    });
+    appEl.querySelectorAll('[data-rd]').forEach(function (c) {
+      c.onclick = function () { openRotaDayPicker(c.getAttribute('data-rd')); };
+    });
+    appEl.querySelector('#ro-import').onclick = openRotaImport;
+    // pattern: read the three inputs, expand, preview/apply
+    function patternEntries() {
+      var codes = null;
+      try { codes = R.parsePattern(appEl.querySelector('#rp-pattern').value); } catch (e) {}
+      if (!codes || !codes.length) return null;
+      var anchor = appEl.querySelector('#rp-anchor').value || today();
+      var weeks = Math.max(1, Math.min(26, Math.round(+appEl.querySelector('#rp-weeks').value) || 4));
+      var entries = null;
+      try { entries = R.expandPattern(anchor, codes, weeks * 7); } catch (e) {}
+      return (entries && entries.length) ? entries : null;
+    }
+    appEl.querySelector('#rp-prev').onclick = function () {
+      var entries = patternEntries(), host = appEl.querySelector('#rp-preview');
+      if (!entries) { host.innerHTML = '<p class="faint tiny" style="margin:0">Could not read that pattern — try like “4D 4OFF” or “2E 2L 2N 4OFF”.</p>'; return; }
+      host.innerHTML = entries.slice(0, 14).map(function (en) {
+        return '<span class="pill" style="margin:0 4px 4px 0">' + esc(String(en.date).slice(5)) + ' ' + esc(en.code) + '</span>';
+      }).join('') + (entries.length > 14 ? ' <span class="tiny faint">+' + (entries.length - 14) + ' more</span>' : '');
+    };
+    appEl.querySelector('#rp-apply').onclick = function () {
+      var entries = patternEntries();
+      if (!entries) { toast('Write a pattern first — e.g. “4D 4OFF”.'); return; }
+      var res = null;
+      try { res = R.applyEntries(entries, {}); } catch (e) {}
+      toast(((res && res.added) || 0) + ' days written to the rota.');
+      render();
+    };
+    appEl.querySelector('#ap-go').onclick = function () {
+      var from = appEl.querySelector('#ap-from').value || today();
+      var to = appEl.querySelector('#ap-to').value || U.addDays(today(), 30);
+      var r2 = null; try { r2 = R.applyDayTypes(from, to); } catch (e) {}
+      if (!r2) { toast('Nothing to plan in that range.'); return; }
+      toast(r2.set + ' days planned · ' + r2.skipped + ' already answered');
+      render();
+    };
+    appEl.querySelector('#cr-go').onclick = function () {
+      var from = appEl.querySelector('#cr-from').value || today();
+      var to = appEl.querySelector('#cr-to').value || U.addDays(today(), 30);
+      if (!confirm('Remove all rota entries from ' + from + ' to ' + to + '? Your day logs are untouched.')) return;
+      var n = 0; try { n = R.clearRange(from, to) || 0; } catch (e) {}
+      toast(n + ' rota entr' + (n === 1 ? 'y' : 'ies') + ' cleared.');
+      render();
+    };
+  }
+
+  /* ---- ORACLE — converse with your own ledger + the Sight (increment 4) ---- */
+  // The conversation lives on `state` so it survives re-renders within this
+  // session; a reload starts fresh. Nothing is ever persisted or sent — the
+  // Oracle reads the ledger on this device and speaks only to its owner.
+  function oracleMsgs() {
+    if (!state._oracleMsgs) {
+      var greet = (CFG.oracle && CFG.oracle.greetings && CFG.oracle.greetings.length) ?
+        dailyPick(CFG.oracle.greetings) : 'Speak.';
+      state._oracleMsgs = [{ who: 'oracle', text: greet, actions: [] }];
+    }
+    return state._oracleMsgs;
+  }
+  // speak a reply aloud when the owner has switched the voice on in Settings
+  function oracleSpeak(say) {
+    try {
+      if (!say || !S.getSettings().oracleVoice || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();               // never queue over a pending line
+      var u = new SpeechSynthesisUtterance(say);
+      u.lang = 'en-GB';
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  // one-shot dictation (webkit only — the mic button renders only when it exists)
+  function startOracleMic() {
+    try {
+      var rec = new window.webkitSpeechRecognition();
+      rec.lang = 'en-GB'; rec.interimResults = false; rec.maxAlternatives = 1;
+      rec.onresult = function (e) {
+        var t = (e.results && e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : '';
+        var inp = appEl.querySelector('#or-input'); if (inp) inp.value = t;
+        if (t) oracleSend(t);
+      };
+      rec.onerror = function () { toast('The Oracle could not hear — try typing.'); };
+      rec.start();
+      toast('Listening…');
+    } catch (e) { toast('Voice input unavailable here.'); }
+  }
+  // the send flow: push the owner's words, ask the module, push the answer
+  function oracleSend(raw) {
+    var text = (raw == null ? '' : String(raw)).replace(/^\s+|\s+$/g, '');
+    if (!text) return;
+    var msgs = oracleMsgs();
+    msgs.push({ who: 'you', text: text });
+    var res = null;
+    if (ORA) { try { res = ORA.respond(text, buildOracleCtx()); } catch (e) {} }
+    if (!res || !res.text) {
+      res = { text: (CFG.oracle && CFG.oracle.unknown && CFG.oracle.unknown.length) ?
+        dailyPick(CFG.oracle.unknown) : 'The record is silent on that.', say: null, actions: [] };
+    }
+    msgs.push({ who: 'oracle', text: res.text, actions: res.actions || [] });
+    oracleSpeak(res.say);
+    render();
+  }
+  // execute an action chip. The Oracle only ever PROPOSES — every write
+  // happens here, on the owner's tap, with the same semantics as quick log.
+  function runOracleAction(act, payload) {
+    var d = today(), log = S.getLog(d);
+    if (act === 'steps') {                            // steps arrive as a daily TOTAL — set, not add
+      var stp = Math.max(0, Math.round(+payload || 0));
+      S.patchLog(d, { steps: stp }); toast('Steps set to ' + stp.toLocaleString() + '.'); render(); return;
+    }
+    if (act === 'med') {                              // additive, like quickAction
+      var mm = Math.max(0, Math.round(+payload || 0));
+      S.patchLog(d, { meditationMin: (+log.meditationMin || 0) + mm }); toast('+' + mm + ' min meditation'); render(); return;
+    }
+    if (act === 'breath') {                           // additive, like quickAction
+      var bm = Math.max(0, Math.round(+payload || 0));
+      S.patchLog(d, { breathingMin: (+log.breathingMin || 0) + bm }); toast('+' + bm + ' min breath'); render(); return;
+    }
+    if (act === 'sleep') { S.patchLog(d, { sleepHrs: +payload }); toast('Sleep logged · ' + (+payload) + 'h'); render(); return; }
+    if (act === 'mood') { S.patchLog(d, { mood: Math.round(+payload) }); toast('Mood logged · ' + Math.round(+payload) + '/5'); render(); return; }
+    if (act === 'clean') {                            // never flips a day already answered
+      if (log.clean == null) { S.patchLog(d, { clean: true }); toast('Held. The line holds.'); render(); }
+      else toast('Today is already answered — the log stands.');
+      return;
+    }
+    if (act === 'goto') { state.tab = payload || 'today'; window.scrollTo(0, 0); render(); return; }
+    if (act === 'breathwork') { openBreathSession(payload, null); return; }
+    if (act === 'urge') { openUrge(); return; }
+  }
+  // suggestion chips — each sends its text through the normal flow
+  var ORACLE_CHIPS = ['Status', 'Risk tonight', 'What’s left to eat', 'Next shift', 'Prophecy', 'Wisdom'];
+  function oracleConverseHtml() {
+    var msgs = oracleMsgs();
+    var thread = msgs.map(function (m, mi) {
+      var acts = '';
+      if (m.who === 'oracle' && m.actions && m.actions.length) {
+        acts = '<div class="chips">' + m.actions.map(function (a, ai) {
+          return '<button class="btn sm cyan" data-oa="' + mi + ':' + ai + '">' + esc(a.label) + '</button>';
+        }).join('') + '</div>';
+      }
+      return '<div class="msg ' + (m.who === 'you' ? 'you' : 'oracle') + '">' + esc(m.text).replace(/\n/g, '<br>') + acts + '</div>';
+    }).join('');
+    var chips = '<div class="chips" style="margin-top:10px">' + ORACLE_CHIPS.map(function (c, i) {
+      return '<button class="btn sm" data-oc="' + i + '">' + esc(c) + '</button>';
+    }).join('') + '</div>';
+    var mic = ('webkitSpeechRecognition' in window) ?
+      '<button class="btn sm" id="or-mic" aria-label="Speak to the Oracle" style="flex:0 0 auto">🎙</button>' : '';
+    return '<div class="card">' +
+      '<div class="chat-thread" id="or-thread">' + thread + '</div>' + chips +
+      '<div class="chat-send"><input type="text" id="or-input" placeholder="Ask the Oracle…">' + mic +
+        '<button class="btn sm gold" id="or-send" style="flex:0 0 auto">Send</button></div>' +
+      '<div class="tiny faint" style="margin-top:8px">On-device only — the Oracle reads your own ledger, and nothing leaves the room.</div>' +
+    '</div>';
+  }
+  /* ---- the Sight: risk · survival · rank horizon · weekly prophecy ---- */
+  function sightStat(v, l) { return '<div class="st"><b>' + v + '</b><span>' + l + '</span></div>'; }
+  // one honest line aimed at the WEAKEST number of the week (lowest normalized)
+  function prophecyFocus(p) {
+    var cands = [];
+    if (p.answered < 7) cands.push({ v: p.answered / 7, t: (7 - p.answered) + ' of 7 days went unanswered — the record can only read what you write.' });
+    if (p.answered > 0 && p.cleanDays < p.answered) cands.push({ v: p.cleanDays / p.answered, t: 'The line broke this week — guard the danger hour before anything else.' });
+    if (p.adherencePct != null) cands.push({ v: p.adherencePct / 100, t: 'Plan adherence sat at ' + p.adherencePct + '% — the plate is the quietest lever you hold.' });
+    if (p.avgSleep != null) cands.push({ v: Math.min(1, p.avgSleep / 8), t: 'Sleep averaged ' + p.avgSleep + 'h — the deep well feeds every other number.' });
+    if (p.avgMood != null) cands.push({ v: p.avgMood / 5, t: 'Mood averaged ' + p.avgMood + ' of 5 — move the body; it lifts the inner weather.' });
+    if (!cands.length) return 'A blank page — write one true day and the prophecy sharpens.';
+    cands.sort(function (a, b) { return a.v - b.v; });
+    return cands[0].t;
+  }
+  function oracleSightHtml() {
+    var ctx = buildOracleCtx();
+    var BAND_COL = { low: '#5be0a0', elevated: '#ffb347', high: '#ff6b8a' };
+    // 1) tonight's risk — big score, band pill, named factors with signed deltas
+    var r = ctx.risk, riskH;
+    if (r && r.score != null) {
+      var col = BAND_COL[r.band] || BAND_COL.low;
+      var rows = (r.factors || []).map(function (f) {
+        var up = f.delta > 0;
+        return '<div class="risk-factor"><span>' + esc(f.label) + '</span><b class="' + (up ? 'up' : 'down') + '">' + (up ? '+' : '') + f.delta + '</b></div>';
+      }).join('');
+      riskH = '<div class="card center"><h3>Tonight’s risk</h3>' +
+        '<div style="font-size:54px;line-height:1;color:' + col + ';text-shadow:0 0 26px ' + col + '66"><b>' + r.score + '</b></div>' +
+        '<div style="margin-top:8px"><span class="pill" style="border:1px solid ' + col + '66;color:' + col + '">' + esc(r.band) + '</span></div>' +
+        (rows ? '<div style="text-align:left;margin-top:12px">' + rows + '</div>' :
+          '<p class="faint tiny" style="margin-top:12px">No named pressures tonight — the base rate alone.</p>') +
+        '<div class="tiny faint" style="margin-top:10px">Association, not fate — the score reads your own ledger, never the future.</div>' +
+      '</div>';
+    } else {
+      riskH = '<div class="card"><h3>Tonight’s risk</h3><p class="faint tiny">The forecast is not cast yet — keep logging sleep, mood and the days.</p></div>';
+    }
+    // 2) survival outlook — the current streak vs every completed past streak
+    var o = ctx.outlook, survH;
+    if (o && o.past > 0) {
+      survH = '<div class="card"><h3>Survival outlook</h3>' +
+        '<p class="muted" style="margin:0;line-height:1.5"><b style="font-size:26px;color:var(--cyan)">' + o.sharePct + '%</b> of your past streaks made it beyond this point — ' +
+          o.madeItBeyond + ' of ' + o.past + ' lived past day ' + o.current + '.</p>' +
+        '<div class="tiny faint" style="margin-top:8px">Association, not fate — past streaks describe who you were, not who you are tonight.</div></div>';
+    } else {
+      survH = '<div class="card"><h3>Survival outlook</h3>' +
+        '<p class="muted" style="margin:0;line-height:1.5">No completed past streaks to measure against — this line is your first. Unwritten ground, walked carefully.</p>' +
+        '<div class="tiny faint" style="margin-top:8px">Association, not fate.</div></div>';
+    }
+    // 3) rank horizon — projected arrival dates at the next ranks
+    var eta = ctx.eta, rankH;
+    if (eta && eta.projections && eta.projections.length) {
+      var rrows = eta.projections.map(function (pr) {
+        return '<tr><td class="muted">' + esc(pr.name) + ' <span class="tiny faint">day ' + pr.reach + '</span></td>' +
+          '<td style="text-align:right"><b>' + esc(pr.etaISO) + '</b> <span class="tiny faint">~' + pr.daysAway + 'd</span></td></tr>';
+      }).join('');
+      rankH = '<div class="card"><h3>Rank horizon</h3><table style="width:100%;font-size:13px">' + rrows + '</table>' +
+        '<div class="tiny faint" style="margin-top:8px">Projected at ' + Math.round((eta.cleanRate || 0) * 100) + '% of answered days clean — a projection, not a promise.</div></div>';
+    } else {
+      rankH = '<div class="card"><h3>Rank horizon</h3><p class="faint tiny">The ladder needs a written history to project from — log the days.</p></div>';
+    }
+    // 4) weekly prophecy — the 7 days ending today, summarised
+    var p = ctx.prophecy, propH;
+    if (p && p.answered != null) {
+      propH = '<div class="card"><h3>Weekly prophecy</h3>' +
+        '<div class="stand">' + sightStat(p.cleanDays + '/' + p.answered, 'clean') +
+          sightStat(p.adherencePct == null ? '—' : p.adherencePct + '%', 'adherence') +
+          sightStat(p.urges, 'urges held') + '</div>' +
+        '<div class="stand" style="margin-top:12px">' + sightStat(p.avgMood == null ? '—' : p.avgMood, 'avg mood') +
+          sightStat(p.avgSleep == null ? '—' : p.avgSleep + 'h', 'avg sleep') +
+          sightStat((+p.chiEarned || 0).toLocaleString(), 'chi earned') + '</div>' +
+        (p.bestDate ? '<div class="tiny muted" style="margin-top:12px">Finest day: <b>' + esc(p.bestDate) + '</b>' +
+          (p.trialsWon ? ' · ' + p.trialsWon + ' trial' + (p.trialsWon === 1 ? '' : 's') + ' won' : '') + '</div>' : '') +
+        '<div class="flag info" style="margin-top:10px">🔮 <span>' + esc(prophecyFocus(p)) + '</span></div>' +
+        '<div class="tiny faint" style="margin-top:8px">' + esc(p.from) + ' → ' + esc(p.to) + ' · read from your own logs.</div></div>';
+    } else {
+      propH = '<div class="card"><h3>Weekly prophecy</h3><p class="faint tiny">A prophecy needs a written week — log the days as they pass.</p></div>';
+    }
+    return riskH + survH + rankH + propH;
+  }
+  function screenOracle() {
+    if (!ORA) {
+      var mh = '<div class="screen">' + header('The Oracle') +
+        '<div class="card"><p class="muted" style="margin:0">Oracle module missing — oracle.js did not load. Reload the app.</p></div></div>';
+      appEl.innerHTML = ''; appEl.appendChild(h(mh)); return;
+    }
+    var tab = state._oracleTab || (state._oracleTab = 'converse');
+    var seg = '<div class="card"><div class="seg" style="justify-content:center">' +
+      '<button data-ot="converse" class="' + (tab === 'converse' ? 'on' : '') + '">Converse</button>' +
+      '<button data-ot="sight" class="' + (tab === 'sight' ? 'on' : '') + '">Sight</button></div></div>';
+    var html = '<div class="screen">' + header('The Oracle') + seg +
+      (tab === 'sight' ? oracleSightHtml() : oracleConverseHtml()) + '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    appEl.querySelectorAll('[data-ot]').forEach(function (b) {
+      b.onclick = function () { state._oracleTab = b.getAttribute('data-ot'); render(); };
+    });
+    // converse wiring — every selector is null-safe so the Sight tab shares it
+    var inp = appEl.querySelector('#or-input');
+    function doSend() { if (!inp) return; var v = inp.value; inp.value = ''; oracleSend(v); }
+    var sb = appEl.querySelector('#or-send'); if (sb) sb.onclick = doSend;
+    if (inp) inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') doSend(); });
+    var mic = appEl.querySelector('#or-mic'); if (mic) mic.onclick = startOracleMic;
+    appEl.querySelectorAll('[data-oc]').forEach(function (b) {
+      b.onclick = function () { oracleSend(ORACLE_CHIPS[+b.getAttribute('data-oc')]); };
+    });
+    appEl.querySelectorAll('[data-oa]').forEach(function (b) {
+      b.onclick = function () {
+        var pr = b.getAttribute('data-oa').split(':');
+        var m = state._oracleMsgs ? state._oracleMsgs[+pr[0]] : null;
+        var a = (m && m.actions) ? m.actions[+pr[1]] : null;
+        if (a) runOracleAction(a.act, a.payload);
+      };
+    });
+    // keep the thread pinned to the newest exchange after every render
+    var th = appEl.querySelector('#or-thread');
+    if (th) th.scrollTop = th.scrollHeight;
+  }
+
+  /* ---- SANCTUM — pranayama, japa mala, cosmic clock (increment 4) ---- */
+  // minutes options for a breath pattern: the standard lengths plus the
+  // pattern's own default (selected), inserted in order when not listed
+  function breathMinOpts(def) {
+    var opts = [3, 5, 10, 15];
+    if (def != null && opts.indexOf(def) < 0) { opts.push(def); opts.sort(function (a, b) { return a - b; }); }
+    return opts.map(function (m) {
+      return '<option value="' + m + '"' + (m === def ? ' selected' : '') + '>' + m + ' min</option>';
+    }).join('');
+  }
+  // Guided breath overlay. The orb is the existing .breath circle, driven by
+  // JS transform transitions per phase kind (in → grow, out → shrink, hold →
+  // steady); reduced-motion keeps it still. Finishing NATURALLY banks the
+  // planned minutes as breathingMin (additive, like the quick log); ending
+  // early banks nothing. minutes may be null → the pattern's own default.
+  function openBreathSession(patternId, minutes) {
+    if (!SAN || !SAN.sessionPlan) { toast('Sanctum module missing — reload the app.'); return; }
+    var plan = null;
+    try { plan = SAN.sessionPlan(patternId, minutes); } catch (e) {}
+    if (!plan) { toast('Unknown breath pattern.'); return; }
+    var pat = plan.pattern, phases = pat.phases;
+    var ov = h('<div class="overlay">' +
+      '<div class="day-num">' + esc(pat.name) + ' · ' + plan.minutes + ' MIN</div>' +
+      '<h2 id="bs-phase" style="min-height:34px;color:var(--cyan)">Ready…</h2>' +
+      '<div class="breath" id="bs-orb" style="transform:scale(0.8)"><b id="bs-count" style="font-size:46px">·</b></div>' +
+      '<div class="timer" id="bs-cycle">cycle 1 / ' + plan.cycles + '</div>' +
+      '<p class="tiny muted" style="max-width:320px;margin-top:12px">' + esc(pat.note || '') + '</p>' +
+      '<button class="btn ghost sm" data-b="end" style="margin-top:12px">End session</button></div>');
+    document.body.appendChild(ov);
+    var orb = ov.querySelector('#bs-orb'), phaseEl = ov.querySelector('#bs-phase'),
+        countEl = ov.querySelector('#bs-count'), cycEl = ov.querySelector('#bs-cycle');
+    var pi = 0, ci = 0, remain = +phases[0].secs, iv = null, done = false;
+    function setOrb(kind, secs) {
+      if (reducedMotion()) return;                    // stillness honoured
+      orb.style.transition = 'transform ' + secs + 's ease-in-out';
+      if (kind === 'in') orb.style.transform = 'scale(1.35)';
+      else if (kind === 'out') orb.style.transform = 'scale(0.8)';
+      // 'hold' — steady: the orb stays where the last phase brought it
+    }
+    function startPhase() {
+      var ph = phases[pi];
+      phaseEl.textContent = ph.label;
+      countEl.textContent = Math.ceil(remain);
+      cycEl.textContent = 'cycle ' + (ci + 1) + ' / ' + plan.cycles;
+      setOrb(ph.kind, ph.secs);
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+    }
+    function cleanup() { if (iv) clearInterval(iv); iv = null; ov.remove(); }
+    ov._cleanup = cleanup;                            // Escape / force-close also clears the interval
+    ov.querySelector('[data-b=end]').onclick = function () { cleanup(); render(); };
+    function finish() {                               // the natural end — bank it
+      if (done) return; done = true;
+      cleanup();
+      var d = today(), lg = S.getLog(d);
+      S.patchLog(d, { breathingMin: (+lg.breathingMin || 0) + plan.minutes });
+      toast('+' + plan.minutes + ' min breath banked');
+      try { chiBurst(E.chiDeltaForBreathing(S.getSettings(), d, plan.minutes), null); } catch (e) {}
+      if (!reducedMotion()) celebrateSmall();
+      render();
+    }
+    startPhase();
+    iv = setInterval(function () {
+      remain -= 1;
+      if (remain > 0.01) { countEl.textContent = Math.ceil(remain); return; }
+      pi++;
+      if (pi >= phases.length) {
+        pi = 0; ci++;
+        if (ci >= plan.cycles) { finish(); return; }
+      }
+      remain += +phases[pi].secs;                     // carries fractional cadence (5.5s phases)
+      startPhase();
+    }, 1000);
+  }
+  // Japa overlay: a circular tap zone counts beads to 108; every 27 lights a
+  // quarter dot; 108 completes a mala (flash) and the bead count resets.
+  // Minutes are banked as meditation ONLY on confirm at the finish.
+  function openJapaSession(mantraId) {
+    var jp = (CFG.sanctum && CFG.sanctum.japa) || null;
+    if (!jp || !jp.mantras || !jp.mantras.length) { toast('Sanctum config missing — reload the app.'); return; }
+    var mantra = jp.mantras[0];
+    for (var i = 0; i < jp.mantras.length; i++) if (jp.mantras[i].id === mantraId) mantra = jp.mantras[i];
+    var beadsTotal = jp.beads || 108, quarter = jp.quarterMark || 27, perMala = jp.minutesPerMala || 8;
+    var beads = 0, malas = 0;
+    var ov = h('<div class="overlay">' +
+      '<div class="day-num">JAPA · ' + esc(mantra.translit) + '</div>' +
+      '<div style="font-size:42px;line-height:1.4;color:var(--gold-soft);text-shadow:0 0 24px rgba(214,175,78,.5)">' + esc(mantra.text) + '</div>' +
+      '<div class="tiny muted" style="margin-top:2px">' + esc(mantra.translit) + ' — ' + esc(mantra.meaning) + '</div>' +
+      '<div class="mala" id="jp-mala"><b id="jp-beads">0</b><span class="tiny faint">of ' + beadsTotal + ' · tap the circle</span></div>' +
+      '<div class="bar" style="width:min(260px,70vw);height:8px"><i id="jp-bar" style="width:0%;background:linear-gradient(90deg,#8a6a1e,#ffce6a);box-shadow:0 0 10px #ffce6a"></i></div>' +
+      '<div class="bead-dots" id="jp-dots"><i></i><i></i><i></i><i></i></div>' +
+      '<div class="tiny faint" id="jp-malas" style="margin-top:6px">0 malas held</div>' +
+      '<button class="btn gold" data-j="finish" style="margin-top:14px">Finish</button></div>');
+    document.body.appendChild(ov);
+    var mala = ov.querySelector('#jp-mala'), beadsEl = ov.querySelector('#jp-beads'),
+        barEl = ov.querySelector('#jp-bar'), malasEl = ov.querySelector('#jp-malas');
+    var dots = ov.querySelectorAll('#jp-dots i');
+    function update() {
+      beadsEl.textContent = beads;
+      barEl.style.width = Math.round(beads / beadsTotal * 100) + '%';
+      for (var di = 0; di < dots.length; di++) {
+        // dots at 27 / 54 / 81 light with the count; the 4th holds for malas
+        var on = di < 3 ? beads >= quarter * (di + 1) : malas > 0;
+        dots[di].className = on ? 'on' : '';
+      }
+      malasEl.textContent = malas + ' mala' + (malas === 1 ? '' : 's') + ' held' +
+        (malas ? ' · ' + (malas * perMala) + ' min ready to bank' : '');
+    }
+    mala.onclick = function () {
+      beads++;
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
+      if (beads >= beadsTotal) {                      // a full round of the mala
+        malas++; beads = 0;
+        if (!reducedMotion()) {
+          mala.classList.remove('pulse');
+          mala.classList.add('flash');
+          setTimeout(function () { mala.classList.remove('flash'); }, 900);
+          celebrateSmall();
+        }
+      } else if (!reducedMotion()) {                  // re-trigger the tap pulse
+        mala.classList.remove('pulse'); void mala.offsetWidth; mala.classList.add('pulse');
+      }
+      update();
+    };
+    ov._cleanup = function () { ov.remove(); };
+    ov.querySelector('[data-j=finish]').onclick = function () {
+      if (malas > 0) {
+        var mins = malas * perMala;
+        if (confirm('Bank ' + malas + ' mala' + (malas === 1 ? '' : 's') + ' as ' + mins + ' min of meditation?')) {
+          var d = today(), lg = S.getLog(d);
+          S.patchLog(d, { meditationMin: (+lg.meditationMin || 0) + mins });
+          toast('+' + mins + ' min meditation banked');
+        }
+      }
+      ov.remove(); render();
+    };
+  }
+  function screenSanctum() {
+    if (!SAN) {
+      var mh = '<div class="screen">' + header('Sanctum') +
+        '<div class="card"><p class="muted" style="margin:0">Sanctum module missing — sanctum.js did not load. Reload the app.</p></div></div>';
+      appEl.innerHTML = ''; appEl.appendChild(h(mh)); return;
+    }
+    var s = S.getSettings(), d = today();
+    // pranayama — one row per pattern: name, sub, note, minutes + Begin
+    var pats = (CFG.sanctum && CFG.sanctum.patterns) || [];
+    var patH = pats.map(function (p) {
+      return '<div class="meal">' +
+        '<div class="mh"><span class="nm">' + esc(p.name) + '</span><span class="tiny faint">' + esc(p.sub || '') + '</span></div>' +
+        '<div class="items">' + esc(p.note || '') + '</div>' +
+        '<div class="row" style="align-items:center">' +
+          '<select data-bm="' + esc(p.id) + '" style="flex:1">' + breathMinOpts(p.minutes) + '</select>' +
+          '<button class="btn sm gold" data-bp="' + esc(p.id) + '" style="flex:0 0 auto">Begin</button></div>' +
+      '</div>';
+    }).join('');
+    // japa — mantra select (translit + meaning) + begin
+    var mantras = (CFG.sanctum && CFG.sanctum.japa && CFG.sanctum.japa.mantras) || [];
+    var manH = mantras.map(function (m, i) {
+      return '<option value="' + esc(m.id) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(m.translit) + ' — ' + esc(m.meaning) + '</option>';
+    }).join('');
+    // cosmic clock — the moon needs nothing; the sun needs the sacred location
+    var moon = null; try { moon = SAN.moonPhase(d); } catch (e) {}
+    var moonH = moon ?
+      '<div class="row" style="align-items:center;gap:14px"><span style="font-size:42px;line-height:1">' + moon.emoji + '</span>' +
+        '<div class="grow"><b>' + esc(moon.name) + '</b><div class="tiny faint">' + moon.illumPct + '% illuminated · age ' + moon.ageDays + 'd</div></div></div>' :
+      '<p class="faint tiny">The moon could not be computed.</p>';
+    var sunH;
+    if (s.latitude != null && s.longitude != null) {
+      var sun = null; try { sun = SAN.sunTimes(d, s.latitude, s.longitude); } catch (e) {}
+      if (sun && sun.polar) {
+        sunH = '<div class="divider"></div><div class="tiny muted">Polar ' + esc(sun.polar) + ' at your latitude — the sun does not ' +
+          (sun.polar === 'day' ? 'set' : 'rise') + ' today.</div>';
+      } else if (sun && sun.sunrise) {
+        // Brahma Muhurta: if sunrise is already behind us, show tomorrow's window
+        var nowM = new Date().getHours() * 60 + new Date().getMinutes();
+        var bmDate = d, bmLbl = '';
+        if (nowM > sun.sunriseMin) { bmDate = U.addDays(d, 1); bmLbl = ' (tomorrow)'; }
+        var bm = null; try { bm = SAN.brahmaMuhurta(bmDate, s.latitude, s.longitude); } catch (e) {}
+        sunH = '<div class="divider"></div><table style="width:100%;font-size:13px">' +
+          '<tr><td class="muted">🌅 Sunrise</td><td style="text-align:right"><b>' + esc(sun.sunrise) + '</b></td></tr>' +
+          '<tr><td class="muted">🌇 Sunset</td><td style="text-align:right"><b>' + esc(sun.sunset) + '</b></td></tr>' +
+          (bm ? '<tr><td class="muted">🕉 Brahma Muhurta' + bmLbl + '</td><td style="text-align:right"><b>' + esc(bm.start) + '–' + esc(bm.end) + '</b></td></tr>' : '') +
+        '</table>' +
+        (bm ? '<div class="tiny faint" style="margin-top:6px">The creator’s hour — the classical window for practice, before first light.</div>' : '');
+      } else {
+        sunH = '<div class="divider"></div><p class="faint tiny" style="margin:0">The sun could not be computed for those coordinates — check them in Settings.</p>';
+      }
+    } else {
+      sunH = '<div class="divider"></div><div class="tiny muted">Set your sacred location in Settings for sunrise, sunset &amp; the Brahma Muhurta. ' +
+        '<button class="btn ghost sm" data-go="settings" style="margin-top:8px">Open Settings</button></div>';
+    }
+    var html = '<div class="screen">' + header('Sanctum') +
+      '<div class="card"><h3>Pranayama — guided breath</h3>' +
+        '<div class="tiny muted" style="margin-bottom:4px">Pick a pattern and a length; the orb breathes with you. Finishing banks the minutes to today’s log.</div>' +
+        patH + '</div>' +
+      '<div class="card"><h3>Japa — the mala</h3>' +
+        '<div class="tiny muted" style="margin-bottom:4px">108 beads to a mala. Tap the circle with each repetition; bank full malas as meditation when you finish.</div>' +
+        '<label class="field"><span>Mantra</span><select id="jp-mantra">' + manH + '</select></label>' +
+        '<button class="btn gold full" id="jp-begin">Begin japa</button></div>' +
+      '<div class="card"><h3>Cosmic clock</h3>' + moonH + sunH +
+        '<div class="tiny faint" style="margin-top:10px">Computed on this device — nothing leaves it.</div></div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    appEl.querySelectorAll('[data-bp]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-bp');
+        var sel = appEl.querySelector('[data-bm="' + id + '"]');
+        openBreathSession(id, sel ? +sel.value : null);
+      };
+    });
+    var jb = appEl.querySelector('#jp-begin');
+    if (jb) jb.onclick = function () {
+      var sel = appEl.querySelector('#jp-mantra');
+      openJapaSession(sel ? sel.value : null);
+    };
+  }
+
   /* ---- SETTINGS / BACKUP ---- */
   function screenSettings() {
     var s = S.getSettings(), meta = S.getMeta();
@@ -1555,6 +2338,13 @@
         '<label class="field"><span>Current weight (kg)</span><input type="number" id="set-w" value="' + (s.currentWeightKg != null ? s.currentWeightKg : '') + '"></label>' +
       '</div>' +
       '<div class="card"><h3>Motion</h3><div class="check' + (s.reducedMotion ? ' on' : '') + '" id="set-rm"><span class="box">' + (s.reducedMotion ? '✓' : '') + '</span><span class="txt">Reduce animations (save battery)</span></div></div>' +
+      '<div class="card"><h3>Sacred location</h3>' +
+        '<div class="tiny muted" style="margin-bottom:8px">Used only on this device for sunrise &amp; Brahma Muhurta — never sent anywhere.</div>' +
+        '<label class="field"><span>Latitude</span><input type="number" inputmode="decimal" step="0.0001" id="set-lat" value="' + (s.latitude != null ? s.latitude : '') + '" placeholder="e.g. 51.5074"></label>' +
+        '<label class="field"><span>Longitude</span><input type="number" inputmode="decimal" step="0.0001" id="set-lng" value="' + (s.longitude != null ? s.longitude : '') + '" placeholder="e.g. -0.1278"></label>' +
+        '<button class="btn cyan" id="set-geo">📍 Use my location</button>' +
+      '</div>' +
+      '<div class="card"><h3>The Oracle</h3><div class="check' + (s.oracleVoice ? ' on' : '') + '" id="set-ov"><span class="box">' + (s.oracleVoice ? '✓' : '') + '</span><span class="txt">Oracle voice — speak replies aloud</span></div></div>' +
       '<div class="card"><h3>Backup — your safety net</h3>' +
         '<div class="tiny muted" style="margin-bottom:10px">Last export: ' + (meta.lastExportISO || 'never') + '. 500 days of progress lives only on this device — export often.</div>' +
         '<div class="btn-grid"><button class="btn gold" id="do-export">⤓ Export JSON</button><button class="btn cyan" id="do-import">⤒ Import JSON</button></div>' +
@@ -1581,6 +2371,18 @@
     };
     appEl.querySelector('#set-h').addEventListener('change', function (e) { S.setSettings({ heightCm: e.target.value === '' ? null : +e.target.value }); });
     appEl.querySelector('#set-w').addEventListener('change', function (e) { S.setSettings({ currentWeightKg: e.target.value === '' ? null : +e.target.value }); });
+    // increment 4 — sacred location (bound like heightCm) + one-shot geolocation
+    appEl.querySelector('#set-lat').addEventListener('change', function (e) { S.setSettings({ latitude: e.target.value === '' ? null : +e.target.value }); });
+    appEl.querySelector('#set-lng').addEventListener('change', function (e) { S.setSettings({ longitude: e.target.value === '' ? null : +e.target.value }); });
+    appEl.querySelector('#set-geo').onclick = function () {
+      if (!navigator.geolocation || !navigator.geolocation.getCurrentPosition) { toast('No location access in this browser — enter it manually.'); return; }
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        S.setSettings({ latitude: U.round(pos.coords.latitude, 4), longitude: U.round(pos.coords.longitude, 4) });
+        toast('Location saved — it stays on this device.'); render();
+      }, function () { toast('Could not read location — enter it manually.'); });
+    };
+    // increment 4 — Oracle voice toggle (same pattern as reduce-motion)
+    appEl.querySelector('#set-ov').onclick = function () { S.setSettings({ oracleVoice: !S.getSettings().oracleVoice }); render(); };
     appEl.querySelector('#set-rm').onclick = function () {
       var on = !S.getSettings().reducedMotion; S.setSettings({ reducedMotion: on });
       document.body.classList.toggle('reduce-motion', on);           // sync CSS animations immediately
@@ -1626,7 +2428,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -1636,7 +2438,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });
