@@ -135,7 +135,8 @@ function analyze(bundle, asOf) {
     dangerHours: hours.slice(0, 3),
     trends: {
       mood: trendOf(function (l) { return l.mood; }),
-      sleepHrs: trendOf(function (l) { return l.sleepHrs; }),
+      // sleep outside 0-24h is a typo (seen live: "389") — ignore, don't average it
+      sleepHrs: trendOf(function (l) { return (l.sleepHrs != null && +l.sleepHrs >= 0 && +l.sleepHrs <= 24) ? l.sleepHrs : null; }),
       steps: trendOf(function (l) { return l.steps > 0 ? l.steps : null; }),
       breathingMin: trendOf(function (l) { return l.breathingMin > 0 ? l.breathingMin : null; })
     },
