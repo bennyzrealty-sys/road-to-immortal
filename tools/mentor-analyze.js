@@ -109,11 +109,22 @@ function analyze(bundle, asOf) {
     G.list().forEach(function (g) {
       if (g.archived) return;
       var p = G.progress(g, asOf);
+      // increment 9 — waiting/chase + due-soon so morning counsel can nudge by name
+      var waiting = [], dueSoon = [];
+      (g.milestones || []).forEach(function (m) {
+        if (m.chaseISO) waiting.push({ title: m.title, chaseISO: m.chaseISO, chaseDueNow: m.chaseISO <= asOf });
+        if (m.targetISO && !m.doneISO) {
+          var dd = U.daysBetween(asOf, m.targetISO);
+          if (dd >= 0 && dd <= 7) dueSoon.push({ title: m.title, targetISO: m.targetISO, inDays: dd });
+        }
+      });
       goals.push({ title: g.title, horizon: g.horizon, combinedPct: p.combined,
                    milestones: p.msDone + '/' + p.msTotal, adherence14: p.adherence,
                    etaISO: p.eta ? p.eta.iso : null,
                    next: (function () { var n = G.nextMilestone(g); return n ? n.title : null; })(),
-                   overdue: G.overdueMilestones(asOf).filter(function (o) { return o.goal.id === g.id; }).length });
+                   overdue: G.overdueMilestones(asOf).filter(function (o) { return o.goal.id === g.id; }).length,
+                   waiting: waiting, dueSoon: dueSoon,
+                   guardrail: g.guardrail || null });
     });
   } catch (e) {}
 

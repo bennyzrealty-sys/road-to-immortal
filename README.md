@@ -64,7 +64,7 @@ npx --yes serve -l 8123 .
 
 **Re-run the engine self-test** after any change to `engine.js`/`config.js`:
 ```sh
-node tools/selftest.js     # expect: 270 passed, 0 failed
+node tools/selftest.js     # expect: 296 passed, 0 failed
 ```
 
 **Regenerate icons** (only if you change the art):
@@ -502,6 +502,42 @@ honest metrics, reasons over them, and leaves counsel the app renders. SW → **
 8 new self-test assertions (analyzer rejects non-backups; full-record read; clean
 rate; urge counting; the real danger hour surfacing; flat-trend detection; foresight
 and calibration presence) — `node tools/selftest.js` → **270 passed, 0 failed**.
+
+## Increment 9 — The Campaign (private templates · waiting-state milestones)
+
+Real-world operations (e.g. a work-restructure campaign) now live inside The Ascent,
+with the coach and the Mentor driving their deadlines. SW → **v17**.
+
+- **Waiting-on-external state**: a milestone gains optional `chaseISO` ("waiting on a
+  reply — chase by this date") and `note`. Deliberately **orthogonal to done**: "applied
+  ✓ on the 21st, no reply yet, chase Monday" is one milestone. Progress counts the done;
+  the chase nags separately. Milestones are now **editable** in-app (✎ — title, due
+  date, chase date, note), which is also the honest snooze for overdue dates.
+- **Coach one-taps with an honesty asymmetry**: CHASE items persist on the agenda while
+  their date has arrived — both actions ([Chased ✓] pushes the date
+  `config.goals.chaseBumpDays` out, [Reply received] ends the wait) are always honestly
+  available, so the daily re-nag is the feature. DUE items appear **only on their exact
+  due day** ([Done ✓] flips the ring up); an *overdue* milestone lives in the Today
+  banner instead ("re-date it honestly, or fell it") — it must never squat in the
+  completion ring training dishonest Done-taps. Chase-overdue has its own ⏳ banner.
+- **Private template registry**: campaigns whose content must never enter this public
+  repo are authored as `templates.json` in the owner's PRIVATE `rti-data` repo, pulled
+  by the existing sync layer (`pullTemplates`, same single endpoint) into a
+  device-local key (never exported). The Ascent shows an **install card** per
+  uninstalled template (guardrail previewed); one tap runs `RTI_GOALS.installTemplate`
+  — the normal validated write path, **idempotent** via a `templateId` stamp (archived
+  installs still count; deleting re-offers the card). Goals gain optional `guardrail`
+  (pinned amber on the card) and `note`. The template's `createdISO` (the operation's
+  real start) is honoured so pre-done milestones can't project a day-one fantasy ETA.
+- **Mentor sees the campaign**: the analyzer now reports per-goal `waiting`
+  (chase dates + due-now flags), `dueSoon` (≤7 days) and the guardrail, so morning
+  counsel can chase by name.
+
+26 new self-test assertions (install shape/idempotency/archived-block/createdISO,
+done+waiting orthogonality, ETA honesty, chase boundary dates, the agenda asymmetry
+incl. ring flip-up and morning-after clearing, msAgendaCap, bump/clear actions,
+registry never in the export, legacy-shape compatibility) —
+`node tools/selftest.js` → **296 passed, 0 failed**.
 
 ## Open risks / TODOs
 

@@ -437,12 +437,38 @@
             shown++;
           }
         }
+        // increment 9 — due/chase milestones outrank routine tasks. Deliberate
+        // asymmetry: CHASE items persist while chaseISO <= today, because both
+        // actions ([Chased] bumps the date, [Reply received] clears it) are
+        // always honestly available — the daily re-nag is the feature. DUE
+        // items appear ONLY on their exact due day (done-today shows as done so
+        // the ring flips up); an OVERDUE milestone lives in the Today banner
+        // instead ("re-date it honestly, or fell it") — its only one-tap here
+        // would be [Done], and an unfinishable item must never squat in the
+        // completion ring training dishonest taps.
+        var msCap = (CFG.goals && CFG.goals.msAgendaCap) || 2, msShown = 0;
+        var chases = G.chaseDue(asOf);
+        for (var ci = 0; ci < chases.length && msShown < msCap; ci++, msShown++) {
+          push('goalchase-' + chases[ci].ms.id, 'goalchase', 'Chase: ' + chases[ci].ms.title,
+               false, { timely: true, mealKey: chases[ci].goal.id + ':' + chases[ci].ms.id });
+        }
+        for (var di = 0; di < gls.length && msShown < msCap; di++) {
+          var dms = gls[di].milestones || [];
+          for (var mi = 0; mi < dms.length && msShown < msCap; mi++) {
+            var dm = dms[mi];
+            if (dm.targetISO !== asOf) continue;               // only the due day itself
+            if (dm.doneISO && dm.doneISO !== asOf) continue;   // finished earlier: nothing to ask
+            push('goalms-' + dm.id, 'goalms', 'Due: ' + dm.title, !!dm.doneISO,
+                 { timely: true, mealKey: gls[di].id + ':' + dm.id });
+            msShown++;
+          }
+        }
       }
     } catch (eG) {}
 
     var total = items.length, done = items.filter(function (it) { return it.done; }).length;
     var pending = items.filter(function (it) { return !it.done && !it.blocked; });
-    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, goalchase: 3.4, goalms: 3.5, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
     pending.sort(function (a, b) {
       var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
       if (at !== bt) return at - bt;

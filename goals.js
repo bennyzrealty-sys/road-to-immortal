@@ -15,7 +15,7 @@
    ===================================================================== */
 (function (global) {
   'use strict';
-  var U = global.RTI_UTIL, S = global.RTI_STORE;
+  var U = global.RTI_UTIL, S = global.RTI_STORE, CFG = global.RTI_CONFIG;
 
   var idSeq = 0;
   function newId(prefix) {
@@ -59,10 +59,38 @@
     var gs = list();
     for (var i = 0; i < gs.length; i++) if (gs[i].id === goalId) {
       gs[i].milestones.push({ id: newId('m'), title: String(fields.title || 'Milestone'),
-                              targetISO: fields.targetISO || null, doneISO: null });
+                              targetISO: fields.targetISO || null,
+                              doneISO: fields.doneISO || null,
+                              // waiting-on-external: chase on/after this date.
+                              // ORTHOGONAL to doneISO — an action can be done
+                              // while its reply is still awaited (increment 9).
+                              chaseISO: fields.chaseISO || null,
+                              note: fields.note ? String(fields.note) : null });
       break;
     }
     save(gs);
+  }
+  function patchMilestone(goalId, msId, patch) {
+    var gs = list();
+    for (var i = 0; i < gs.length; i++) if (gs[i].id === goalId) {
+      var ms = gs[i].milestones;
+      for (var j = 0; j < ms.length; j++) if (ms[j].id === msId) {
+        for (var k in patch) ms[j][k] = patch[k];
+        break;
+      }
+      break;
+    }
+    save(gs);
+  }
+  // "Chased ✓" — push the chase-by date out so the coach re-asks later,
+  // and today's plate clears itself
+  function bumpChase(goalId, msId, asOf) {
+    var days = (CFG.goals && CFG.goals.chaseBumpDays) || 3;
+    patchMilestone(goalId, msId, { chaseISO: U.addDays(asOf || U.todayISO(), days) });
+  }
+  // "Reply received" — the wait is over
+  function clearChase(goalId, msId) {
+    patchMilestone(goalId, msId, { chaseISO: null });
   }
   function toggleMilestone(goalId, msId, asOf) {
     var gs = list();
@@ -204,6 +232,65 @@
     }
     return out;
   }
+  // milestones whose chase-by date has arrived — done or not (waiting is
+  // orthogonal: "applied ✓, no reply yet" is exactly the case this serves)
+  function chaseDue(asOf) {
+    var out = [], gs = active();
+    for (var i = 0; i < gs.length; i++) {
+      for (var j = 0; j < gs[i].milestones.length; j++) {
+        var m = gs[i].milestones[j];
+        if (m.chaseISO && m.chaseISO <= asOf) out.push({ goal: gs[i], ms: m });
+      }
+    }
+    out.sort(function (a, b) { return a.ms.chaseISO < b.ms.chaseISO ? -1 : 1; });
+    return out;
+  }
+  // undone milestones whose due date has arrived (the coach's version of the
+  // overdue banner — includes the due day itself)
+  function dueMilestones(asOf) {
+    var out = [], gs = active();
+    for (var i = 0; i < gs.length; i++) {
+      for (var j = 0; j < gs[i].milestones.length; j++) {
+        var m = gs[i].milestones[j];
+        if (m.targetISO && !m.doneISO && m.targetISO <= asOf) out.push({ goal: gs[i], ms: m });
+      }
+    }
+    out.sort(function (a, b) { return a.ms.targetISO < b.ms.targetISO ? -1 : 1; });
+    return out;
+  }
+
+  /* ---------- template install (increment 9 — one tap, idempotent) ----------
+     Templates arrive from the PRIVATE registry (sync pullTemplates); installing
+     builds the ambition through the same validated write path as hand-created
+     goals. templateId stamps the goal so a second tap can never duplicate it —
+     archived installs still count as installed (restore, don't reinstall). */
+  function installTemplate(tpl, asOf) {
+    if (!tpl || !tpl.id || !tpl.title) return { ok: false, reason: 'bad-template' };
+    var gs = list();
+    for (var i = 0; i < gs.length; i++) {
+      if (gs[i].templateId === tpl.id) return { ok: false, reason: 'installed', goal: gs[i] };
+    }
+    // createdISO = the operation's REAL start (from the template), not install
+    // day — otherwise pre-done milestones divided by one elapsed day project a
+    // fantasy ETA, breaking the app's own honesty rule
+    var g = addGoal({ title: tpl.title, why: tpl.why || '', horizon: tpl.horizon || null },
+                    tpl.createdISO || asOf);
+    var ms = tpl.milestones || [];
+    for (var j = 0; j < ms.length; j++) {
+      addMilestone(g.id, { title: ms[j].title, targetISO: ms[j].targetISO || null,
+                           doneISO: ms[j].doneISO || null, chaseISO: ms[j].chaseISO || null,
+                           note: ms[j].note || null });
+    }
+    var ts = tpl.tasks || [];
+    for (var k = 0; k < ts.length; k++) {
+      // template omission means weekly (campaign rhythms), unlike hand-added
+      // tasks where addTask defaults daily
+      addTask(g.id, { title: ts[k].title, cadence: ts[k].cadence || 'weekly' });
+    }
+    patchGoal(g.id, { templateId: tpl.id, templateVersion: tpl.version || 1,
+                      guardrail: tpl.guardrail || null, note: tpl.note || null });
+    return { ok: true, goal: byId(g.id) };
+  }
   function upcomingMilestones(asOf, withinDays) {
     var out = [], gs = active();
     for (var i = 0; i < gs.length; i++) {
@@ -222,6 +309,8 @@
     list: list, active: active, byId: byId,
     addGoal: addGoal, patchGoal: patchGoal, removeGoal: removeGoal,
     addMilestone: addMilestone, toggleMilestone: toggleMilestone, removeMilestone: removeMilestone,
+    patchMilestone: patchMilestone, bumpChase: bumpChase, clearChase: clearChase,
+    chaseDue: chaseDue, dueMilestones: dueMilestones, installTemplate: installTemplate,
     addTask: addTask, toggleTask: toggleTask, removeTask: removeTask,
     expectedPerWeek: expectedPerWeek, cadenceLabel: cadenceLabel,
     doneOn: doneOn, doneCountInWindow: doneCountInWindow,

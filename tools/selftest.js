@@ -757,5 +757,82 @@ check('mentor-analyze: steady sleep reads flat', mx.trends.sleepHrs.direction, '
 check('mentor-analyze: foresight rides along', !!mx.foresight.tonight && mx.foresight.week.answered, 7);
 check('mentor-analyze: meters + calibration present', !!mx.meters.today && !!mx.meters.calibration.chi, true);
 
+/* =================== INCREMENT 9 — THE CAMPAIGN (chase state · templates) =================== */
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var T9 = '2026-07-27';
+var TPL = {
+  id: 'op-test', version: 1, title: 'Operation Test', why: 'w', horizon: '2026-09-01',
+  createdISO: '2026-07-21', // the operation's REAL start — the honest ETA basis
+  guardrail: 'No resignation until signed.', note: 'December = max incentive shifts.',
+  milestones: [
+    { title: 'Applied to bank', doneISO: '2026-07-21', chaseISO: '2026-07-27', note: 'phone 0114' },
+    { title: 'Submit FWR', targetISO: '2026-07-25' },
+    { title: 'No date yet' }
+  ],
+  tasks: [{ title: 'Sorted slot', cadence: 'weekly' }, { title: 'Book shifts', cadence: 'weekly' }]
+};
+var inst = G.installTemplate(TPL, '2026-07-22');
+check('installTemplate builds the full shape', inst.ok && inst.goal.milestones.length + '|' + inst.goal.tasks.length + '|' + inst.goal.templateId, '3|2|op-test');
+check('installTemplate carries guardrail + note + horizon', inst.goal.guardrail === TPL.guardrail && inst.goal.note === TPL.note && inst.goal.horizon, '2026-09-01');
+check('installTemplate honours the operation start date', inst.goal.createdISO, '2026-07-21');
+check('installTemplate is idempotent', G.installTemplate(TPL, '2026-07-22').ok + '|' + G.installTemplate(TPL, '2026-07-22').reason, 'false|installed');
+G.patchGoal(inst.goal.id, { archived: true });
+check('archived install still blocks reinstall', G.installTemplate(TPL, '2026-07-22').reason, 'installed');
+G.patchGoal(inst.goal.id, { archived: false });
+// done+waiting orthogonality
+var mDone = inst.goal.milestones[0], mDue = inst.goal.milestones[1], mFree = inst.goal.milestones[2];
+check('done milestone counts as fallen for progress', G.progress(G.byId(inst.goal.id), T9).msDone, 1);
+check('ETA projects from the operation start, not install day (no day-1 fantasy)', G.progress(G.byId(inst.goal.id), T9).eta.days, 12);
+check('chase not due before its date', G.chaseDue('2026-07-26').length, 0);
+check('chase due on its date (even though done)', G.chaseDue(T9).length + '|' + G.chaseDue(T9)[0].ms.title, '1|Applied to bank');
+check('dueMilestones API: undone + arrived only', G.dueMilestones(T9).length + '|' + G.dueMilestones(T9)[0].ms.title, '1|Submit FWR');
+// coach agenda — the asymmetry: chase persists; due appears ONLY on its exact day
+var ag9 = E.dailyAgenda(st, T9, 10); // 07-27: chase is live, FWR (due 07-25) is OVERDUE
+var chaseItems = ag9.items.filter(function (it) { return it.kind === 'goalchase'; });
+check('agenda: chase persists past its date', chaseItems.length, 1);
+check('agenda: an OVERDUE milestone stays out (banner territory, no dishonest Done)', ag9.items.filter(function (it) { return it.kind === 'goalms'; }).length, 0);
+check('agenda payload is goalId:msId', chaseItems[0].mealKey, inst.goal.id + ':' + mDone.id);
+var agDue = E.dailyAgenda(st, '2026-07-25', 10);
+check('agenda: due milestone appears on its exact day, undone', agDue.items.filter(function (it) { return it.kind === 'goalms' && !it.done; }).length, 1);
+G.patchMilestone(inst.goal.id, mDue.id, { doneISO: '2026-07-25' });
+check('agenda: done on the due day flips the item (ring rises)', E.dailyAgenda(st, '2026-07-25', 10).items.filter(function (it) { return it.kind === 'goalms' && it.done; }).length, 1);
+check('agenda: the morning after, the due item is gone', E.dailyAgenda(st, '2026-07-26', 10).items.filter(function (it) { return it.kind === 'goalms'; }).length, 0);
+G.patchMilestone(inst.goal.id, mDue.id, { doneISO: null });
+G.bumpChase(inst.goal.id, mDone.id, T9);
+check('Chased bumps chaseISO by chaseBumpDays', G.byId(inst.goal.id).milestones[0].chaseISO, U.addDays(T9, global.RTI_CONFIG.goals.chaseBumpDays));
+check('bumped chase leaves today’s plate', E.dailyAgenda(st, T9, 10).items.filter(function (it) { return it.kind === 'goalchase'; }).length, 0);
+G.clearChase(inst.goal.id, mDone.id);
+check('Reply received clears the wait', G.byId(inst.goal.id).milestones[0].chaseISO, null);
+// the cap bounds the coach's plate
+G.patchMilestone(inst.goal.id, mDone.id, { chaseISO: '2026-07-25' });
+G.patchMilestone(inst.goal.id, mDue.id, { chaseISO: '2026-07-26' });
+G.patchMilestone(inst.goal.id, mFree.id, { chaseISO: '2026-07-27' });
+check('msAgendaCap bounds the coach load', E.dailyAgenda(st, T9, 10).items.filter(function (it) { return it.kind === 'goalchase'; }).length, global.RTI_CONFIG.goals.msAgendaCap);
+G.patchMilestone(inst.goal.id, mDone.id, { chaseISO: null });
+G.patchMilestone(inst.goal.id, mDue.id, { chaseISO: null });
+G.patchMilestone(inst.goal.id, mFree.id, { chaseISO: null });
+// the registry cache is device-local and never exported
+S.setTemplates({ fetchedAt: 'x', templates: [{ id: 'a', title: 't' }] });
+check('template registry stores + pullTemplates exists', S.getTemplates().templates.length + '|' + (typeof global.RTI_SYNC.pullTemplates), '1|function');
+check('template registry never enters the export', 'templates' in S.exportBundle(), false);
+// export/import round-trip + legacy compat
+var b9 = S.exportBundle();
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+check('chase/note/guardrail survive import', S.importBundle(b9).ok && (function () {
+  var g = S.getGoals().goals[0];
+  return (g.guardrail === TPL.guardrail) + '|' + g.milestones[0].note;
+})(), 'true|phone 0114');
+check('legacy milestones (no new fields) still read', (function () {
+  S.setGoals({ goals: [{ id: 'L', title: 'legacy', why: '', horizon: null, createdISO: '2026-07-01', archived: false,
+    milestones: [{ id: 'Lm', title: 'old', targetISO: '2026-07-20', doneISO: null }], tasks: [] }] });
+  return G.chaseDue(T9).length + '|' + G.dueMilestones(T9).length + '|' + G.overdueMilestones(T9).length;
+})(), '0|1|1');
+// mentor-analyze surfaces waiting + dueSoon + guardrail
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+G.installTemplate(TPL, '2026-07-22');
+var mx9 = MA.analyze(S.exportBundle(), '2026-07-24');
+check('mentor-analyze: waiting + guardrail ride along', mx9.goals[0].waiting.length + '|' + (mx9.goals[0].guardrail === TPL.guardrail), '1|true');
+check('mentor-analyze: dueSoon within 7 days', mx9.goals[0].dueSoon.length + '|' + mx9.goals[0].dueSoon[0].inDays, '1|1');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

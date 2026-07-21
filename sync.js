@@ -192,6 +192,21 @@
       if (cb) cb(null, obj);
     });
   }
+  // Read the PRIVATE template registry (increment 9): ambitions authored off-device
+  // (e.g. Operation September) that must never enter the public repo. The phone
+  // only ever READS templates.json; installing goes through the normal RTI_GOALS
+  // write path on the owner's tap.
+  function pullTemplates(cb) {
+    if (!configured() || !online()) { if (cb) cb(null, null); return; }
+    getFile('templates.json', function (err, remote) {
+      if (err || !remote) { if (cb) cb(err || null, null); return; }
+      var obj = null;
+      try { obj = JSON.parse(remote.text); } catch (e) { if (cb) cb(null, null); return; }
+      if (!obj || !Array.isArray(obj.templates)) { if (cb) cb(null, null); return; }
+      S.setTemplates({ fetchedAt: new Date().toISOString(), sha: remote.sha, templates: obj.templates });
+      if (cb) cb(null, obj);
+    });
+  }
 
   /* ---------- auto-sync: quiet, throttled, change-driven ---------- */
   var lastAttempt = 0;
@@ -206,6 +221,7 @@
     try { changed = bundleHash(S.exportBundle()) !== c.lastPushedHash; } catch (e) {}
     if (changed) pushBackup(null);
     pullMentor(null);
+    pullTemplates(null);
   }
 
   global.RTI_SYNC = {
@@ -213,6 +229,6 @@
     configured: configured, apiUrl: apiUrl,
     pushBackup: pushBackup, overwriteCloud: overwriteCloud,
     restoreFromCloud: restoreFromCloud, pushPhotos: pushPhotos,
-    pullMentor: pullMentor, maybeAutoSync: maybeAutoSync
+    pullMentor: pullMentor, pullTemplates: pullTemplates, maybeAutoSync: maybeAutoSync
   };
 })(typeof window !== 'undefined' ? window : this);

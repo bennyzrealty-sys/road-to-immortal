@@ -24,7 +24,9 @@
     sync:     'rti_sync_v1',    // cloud-sync config (incl. token) — DEVICE-LOCAL,
                                 //   deliberately NOT part of the export bundle
     mentor:   'rti_mentor_v1',  // last pulled mentor/insights.json (device-local)
-    goals:    'rti_goals_v1'    // { goals: [...] } — ambitions/milestones/tasks (increment 7)
+    goals:    'rti_goals_v1',   // { goals: [...] } — ambitions/milestones/tasks (increment 7)
+    templates:'rti_templates_v1'// pulled PRIVATE template registry (device-local,
+                                //   never in the export — content stays out of git)
   };
   var SCHEMA = 1;
 
@@ -231,6 +233,10 @@
   function getMentor() { return read(K.mentor, null); }
   function setMentor(obj) { write(K.mentor, obj); return obj; }
 
+  /* ---------------- Template registry (increment 9 — pulled, device-local) ---------------- */
+  function getTemplates() { return read(K.templates, null); }
+  function setTemplates(obj) { write(K.templates, obj); return obj; }
+
   /* ---------------- Goals (increment 7 — ambitions, IN the export bundle) ---------------- */
   function defaultGoals() { return { goals: [] }; }
   function getGoals() {
@@ -315,6 +321,7 @@
     defaultRota: defaultRota, getRota: getRota, setRota: setRota,
     defaultSync: defaultSync, getSync: getSync, setSync: setSync,
     getMentor: getMentor, setMentor: setMentor,
+    getTemplates: getTemplates, setTemplates: setTemplates,
     defaultGoals: defaultGoals, getGoals: getGoals, setGoals: setGoals,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };

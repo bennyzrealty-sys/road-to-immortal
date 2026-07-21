@@ -435,6 +435,8 @@
        in-app. Milestone dates are deliberately blank: the owner sets the road. */
     goals: {
       agendaCap: 4,   // max ambition tasks shown on the coach agenda
+      msAgendaCap: 2, // max due/chase milestone items on the coach agenda
+      chaseBumpDays: 3, // "Chased ✓" pushes the chase-by date this many days out
       seeds: [
         { id: 'career', title: 'The Career Ascent', why: 'Build the work that funds the life.',
           milestones: ['Write the one-line summit — what does "made it" mean?', 'First concrete step taken (course begun / CV out / project started)', 'First visible win (interview / client / shipped thing)'],

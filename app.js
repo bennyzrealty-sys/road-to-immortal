@@ -414,6 +414,9 @@
       case 'mood': q = 'How’s the inner weather today?'; ctrls = cpBtn('go-log', 'Log mood', ''); break;
       case 'targets': q = 'A few of today’s targets are still open ↓'; ctrls = ''; break;
       case 'goaltask': q = p.label + ' — a step on The Ascent.'; ctrls = cpBtn('goal-done', 'Done ✓', 'gold', p.mealKey) + cpBtn('go-goals', 'The Ascent', ''); break;
+      // increment 9 — due/chase milestones: every action clears today's plate
+      case 'goalchase': q = p.label.replace(/^Chase: /, '') + ' — the reply is owed. Chase it?'; ctrls = cpBtn('goal-chase', 'Chased ✓', 'gold', p.mealKey) + cpBtn('goal-reply', 'Reply received', 'cyan', p.mealKey); break;
+      case 'goalms': q = p.label.replace(/^Due: /, '') + ' — due today.'; ctrls = cpBtn('goal-msdone', 'Done ✓', 'gold', p.mealKey) + cpBtn('go-goals', 'The Ascent', ''); break;
     }
     return '<div class="coach-primary"><div class="cp-q">' + esc(q) + '</div>' + (ctrls ? '<div class="cp-ctrls">' + ctrls + '</div>' : '') + '</div>';
   }
@@ -486,6 +489,16 @@
           if (gtid) { var gg = S.getLog(d).goalTasks || {}; gg[gtid] = true; S.patchLog(d, { goalTasks: gg }); toast('Ambition advanced.'); }
           render(); return;
         }
+        // increment 9 — chase/due milestone actions (goalId:msId rides in data-mk)
+        if (a === 'goal-chase' || a === 'goal-reply' || a === 'goal-msdone') {
+          var pk = (b.getAttribute('data-mk') || '').split(':');
+          if (pk.length === 2 && window.RTI_GOALS) {
+            if (a === 'goal-chase') { RTI_GOALS.bumpChase(pk[0], pk[1], d); toast('Chased — I’ll ask again in ' + ((CFG.goals && CFG.goals.chaseBumpDays) || 3) + ' days.'); }
+            else if (a === 'goal-reply') { RTI_GOALS.clearChase(pk[0], pk[1]); toast('Reply received — the wait is over.'); }
+            else { RTI_GOALS.patchMilestone(pk[0], pk[1], { doneISO: d }); if (!reducedMotion()) celebrateSmall(); toast('Milestone fallen. The road shortens.'); }
+          }
+          render(); return;
+        }
       };
     });
     appEl.querySelectorAll('[data-ci]').forEach(function (b) {
@@ -503,6 +516,7 @@
           if (tid) { var gl = S.getLog(d).goalTasks || {}; gl[tid] = true; S.patchLog(d, { goalTasks: gl }); toast('Ambition advanced.'); }
           render(); return;
         }
+        if (k === 'goalchase' || k === 'goalms') { state.tab = 'goals'; window.scrollTo(0, 0); render(); return; }
       };
     });
   }
@@ -612,14 +626,20 @@
       }
     } catch (eMB) {}
     // increment 7 — an overdue milestone deserves a banner, not silence
+    // increment 9 — an overdue CHASE (waiting on a reply) joins the same slot
     var goalBanner = '';
     try {
       if (window.RTI_GOALS) {
         var od = RTI_GOALS.overdueMilestones(today());
+        var cdB = RTI_GOALS.chaseDue(today());
         if (od.length) goalBanner = '<div class="card" style="border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.07)">' +
           '<div class="row"><div class="grow"><b>Overdue milestone</b><div class="tiny muted">“' + esc(od[0].ms.title) + '” (' + esc(od[0].goal.title) + ') passed its date' +
           (od.length > 1 ? ' — and ' + (od.length - 1) + ' more' : '') + '. Re-date it honestly, or fell it.</div></div>' +
           '<button class="btn sm cyan" data-go="goals">Open</button></div></div>';
+        else if (cdB.length) goalBanner = '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
+          '<div class="row"><div class="grow"><b>⏳ A reply is owed a chase</b><div class="tiny muted">“' + esc(cdB[0].ms.title) + '” (' + esc(cdB[0].goal.title) + ')' +
+          (cdB.length > 1 ? ' — and ' + (cdB.length - 1) + ' more' : '') + '. The coach card has the one-tap actions.</div></div>' +
+          '<button class="btn sm gold" data-go="goals">Open</button></div></div>';
       }
     } catch (eGB) {}
     var catchupBanner = (unloggedDays >= 2) ?
@@ -2422,10 +2442,17 @@
     else if (p.msTotal && !p.msDone) eta = '<div class="tiny faint" style="margin-top:4px">No projection yet — fell the first milestone and the road dates itself.</div>';
     var msRows = g.milestones.map(function (m) {
       var mark = m.doneISO ? '✓' : '◻';
-      var when = m.doneISO ? 'fell ' + esc(m.doneISO) : (m.targetISO ? 'due ' + esc(m.targetISO) + (m.targetISO < d ? ' · OVERDUE' : '') : 'no date');
+      // status line: done / due / no date · plus the orthogonal waiting state
+      var bits = [];
+      if (m.doneISO) bits.push('fell ' + esc(m.doneISO));
+      else if (m.targetISO) bits.push('due ' + esc(m.targetISO) + (m.targetISO < d ? ' · <b style="color:#ff8aa8">OVERDUE</b>' : ''));
+      else bits.push('no date');
+      if (m.chaseISO) bits.push('⏳ chase ' + esc(m.chaseISO) + (m.chaseISO <= d ? ' · <b style="color:#ffb347">NOW</b>' : ''));
       return '<div class="row" style="margin:4px 0;align-items:center">' +
         '<button class="btn sm ' + (m.doneISO ? 'gold' : '') + '" data-ms="' + esc(g.id) + ':' + esc(m.id) + '" style="flex:0 0 auto">' + mark + '</button>' +
-        '<div class="grow" style="margin-left:8px"><div>' + esc(m.title) + '</div><div class="tiny faint">' + when + '</div></div>' +
+        '<div class="grow" style="margin-left:8px"><div>' + esc(m.title) + '</div><div class="tiny faint">' + bits.join(' · ') + '</div>' +
+        (m.note ? '<div class="tiny faint" style="opacity:.75">🗒 ' + esc(m.note) + '</div>' : '') + '</div>' +
+        '<button class="icon-btn" data-msedit="' + esc(g.id) + ':' + esc(m.id) + '" aria-label="Edit milestone">✎</button>' +
         '<button class="icon-btn" data-msdel="' + esc(g.id) + ':' + esc(m.id) + '" aria-label="Delete milestone">✕</button></div>';
     }).join('');
     var taskRows = g.tasks.map(function (t) {
@@ -2443,8 +2470,10 @@
         (g.why ? '<div class="tiny muted" style="font-style:italic">' + esc(g.why) + '</div>' : '') +
         '<div class="tiny faint" style="margin-top:2px">' + horizon + '</div></div>' +
         '<div style="text-align:right"><b style="font-size:22px">' + p.combined + '%</b><div class="tiny faint">derived</div></div></div>' +
+      (g.guardrail ? '<div class="flag amber" style="margin:8px 0">📌 ' + esc(g.guardrail) + '</div>' : '') +
       '<div class="bar" style="margin:8px 0"><i data-fill="' + p.combined + '"></i></div>' +
       '<div class="tiny muted">' + p.msDone + '/' + p.msTotal + ' milestones' + (p.adherence != null ? ' · task adherence ' + p.adherence + '% (14d)' : '') + '</div>' + eta +
+      (g.note ? '<div class="tiny muted" style="margin-top:6px">🗒 ' + esc(g.note) + '</div>' : '') +
       (next ? '<div class="flag info" style="margin:8px 0">Next on the road: <b>' + esc(next.title) + '</b>' + (next.targetISO ? ' · due ' + esc(next.targetISO) : '') + '</div>' : '') +
       '<h3 style="margin-top:10px">Roadmap</h3>' + (msRows || '<div class="tiny faint">No milestones yet — the road needs stones.</div>') +
       '<button class="btn sm ghost" data-addms="' + esc(g.id) + '" style="margin-top:6px">+ milestone</button>' +
@@ -2460,11 +2489,38 @@
       appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Ascent') + '<div class="card">The goals module failed to load.</div></div>'));
       return;
     }
+    // opening The Ascent quietly refreshes the private registry once per
+    // session, re-rendering if new campaigns arrived while we're still here
+    try {
+      if (window.RTI_SYNC && !state._tplPulled) {
+        state._tplPulled = true;
+        RTI_SYNC.pullTemplates(function (err, obj) { if (obj && state.tab === 'goals') render(); });
+      }
+    } catch (eTp) {}
     var goals = RTI_GOALS.list().filter(function (g) { return !g.archived; });
     var archived = RTI_GOALS.list().filter(function (g) { return g.archived; });
     var seeds = (CFG.goals && CFG.goals.seeds) || [];
     var seedBtns = seeds.map(function (sd) { return '<button class="btn sm ghost" data-seed="' + esc(sd.id) + '">' + esc(sd.title) + '</button>'; }).join('');
-    var html = '<div class="screen">' + header('The Ascent') +
+    // increment 9 — campaigns delivered from the PRIVATE vault (sync pullTemplates):
+    // an install card per template not yet installed; hidden once its templateId
+    // exists on any goal (archived included). One tap, normal write path.
+    var tplCards = '';
+    try {
+      var reg = S.getTemplates(), all = RTI_GOALS.list();
+      ((reg && reg.templates) || []).forEach(function (t) {
+        if (!t || !t.id || !t.title) return;
+        var installed = all.some(function (g) { return g.templateId === t.id; });
+        if (installed) return;
+        tplCards += '<div class="card" style="border-color:rgba(255,215,130,.4)">' +
+          '<h3>⚔ ' + esc(t.title) + '</h3>' +
+          (t.why ? '<div class="tiny muted" style="font-style:italic;margin:4px 0">' + esc(t.why) + '</div>' : '') +
+          (t.guardrail ? '<div class="flag amber" style="margin:8px 0">📌 ' + esc(t.guardrail) + '</div>' : '') +
+          '<div class="tiny faint">' + ((t.milestones || []).length) + ' milestones · ' + ((t.tasks || []).length) + ' recurring tasks · delivered from your private vault — nothing here lives in public code.</div>' +
+          '<button class="btn gold" data-tplinstall="' + esc(t.id) + '" style="margin-top:10px">Install this campaign</button>' +
+        '</div>';
+      });
+    } catch (eTpl) {}
+    var html = '<div class="screen">' + header('The Ascent') + tplCards +
       '<div class="card"><h3>🎯 Ambitions</h3>' +
       '<div class="tiny muted" style="margin-bottom:8px">Career and life goals with a real roadmap. Milestones mark the road; recurring tasks are the walking. Progress is <b>derived</b> — milestones fallen (70%) + your actual 14-day task adherence (30%) — and an ETA only appears once the first milestone has truly fallen.</div>' +
       '<button class="btn gold" id="goal-new">+ New ambition</button>' +
@@ -2517,6 +2573,35 @@
     });
     appEl.querySelectorAll('[data-msdel]').forEach(function (b) {
       b.onclick = function () { var p = pair(b, 'data-msdel'); if (confirm('Delete this milestone?')) { G.removeMilestone(p.g, p.x); render(); } };
+    });
+    // increment 9 — edit a milestone: re-date honestly, manage the waiting state
+    appEl.querySelectorAll('[data-msedit]').forEach(function (b) {
+      b.onclick = function () {
+        var p = pair(b, 'data-msedit'), goal = G.byId(p.g), ms = null;
+        if (goal) for (var i = 0; i < goal.milestones.length; i++) if (goal.milestones[i].id === p.x) ms = goal.milestones[i];
+        if (!ms) return;
+        goalOverlay('Edit milestone', [
+          { id: 'title', label: 'The milestone', value: ms.title },
+          { id: 'targetISO', label: 'Due date (blank = none)', type: 'date', value: ms.targetISO || '' },
+          { id: 'chaseISO', label: 'Waiting on a reply — chase by (blank = not waiting)', type: 'date', value: ms.chaseISO || '' },
+          { id: 'note', label: 'Note', value: ms.note || '' }
+        ], function (v) {
+          G.patchMilestone(p.g, p.x, { title: v.title || ms.title, targetISO: v.targetISO || null,
+                                       chaseISO: v.chaseISO || null, note: v.note || null });
+          render();
+        });
+      };
+    });
+    // increment 9 — install a campaign from the private registry (idempotent)
+    appEl.querySelectorAll('[data-tplinstall]').forEach(function (b) {
+      b.onclick = function () {
+        var reg = S.getTemplates(), tid = b.getAttribute('data-tplinstall'), tpl = null;
+        ((reg && reg.templates) || []).forEach(function (t) { if (t && t.id === tid) tpl = t; });
+        if (!tpl) return;
+        var res = G.installTemplate(tpl, d);
+        toast(res.ok ? '⚔ The campaign begins.' : (res.reason === 'installed' ? 'Already installed — the card will hide.' : 'Could not install this template.'));
+        render();
+      };
     });
     appEl.querySelectorAll('[data-task]').forEach(function (b) {
       b.onclick = function () {
@@ -2680,6 +2765,9 @@
       if (!window.RTI_SYNC) return;
       if (!RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
       toast('Syncing…'); RTI_SYNC.pushBackup(syncDone('Synced'));
+      // a manual sync also pulls counsel + the private template registry, so
+      // a fresh connect surfaces everything without waiting for the next tick
+      try { RTI_SYNC.pullMentor(null); RTI_SYNC.pullTemplates(null); } catch (eP) {}
     };
     function doRestore() {
       if (!window.RTI_SYNC || !RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
