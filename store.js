@@ -23,7 +23,8 @@
     rota:     'rti_rota_v1',    // { shifts: {date: 'CODE'}, codeMap: {CODE: kindId}, role }
     sync:     'rti_sync_v1',    // cloud-sync config (incl. token) — DEVICE-LOCAL,
                                 //   deliberately NOT part of the export bundle
-    mentor:   'rti_mentor_v1'   // last pulled mentor/insights.json (device-local)
+    mentor:   'rti_mentor_v1',  // last pulled mentor/insights.json (device-local)
+    goals:    'rti_goals_v1'    // { goals: [...] } — ambitions/milestones/tasks (increment 7)
   };
   var SCHEMA = 1;
 
@@ -109,7 +110,8 @@
                               //   later without retro-corrupting old days)
       notes: '',
       study: null,            // section 6 object
-      trial: null             // { id, done } once a manual daily-trial is attempted (id guards stale days)
+      trial: null,            // { id, done } once a manual daily-trial is attempted (id guards stale days)
+      goalTasks: null         // { taskId: true } — ambition tasks done this day (increment 7)
     };
   }
   function getLogs() { return read(K.logs, {}); }
@@ -229,6 +231,18 @@
   function getMentor() { return read(K.mentor, null); }
   function setMentor(obj) { write(K.mentor, obj); return obj; }
 
+  /* ---------------- Goals (increment 7 — ambitions, IN the export bundle) ---------------- */
+  function defaultGoals() { return { goals: [] }; }
+  function getGoals() {
+    var g = read(K.goals, null);
+    if (!g || !Array.isArray(g.goals)) { g = defaultGoals(); write(K.goals, g); }
+    return g;
+  }
+  function setGoals(obj) {
+    write(K.goals, obj && Array.isArray(obj.goals) ? obj : defaultGoals());
+    return getGoals();
+  }
+
   /* ---------------- Meta (app bookkeeping, not "truth") ---------------- */
   function getMeta() {
     return read(K.meta, { lastSeenRankIndex: -1, lastExportISO: null, prereg: '', preregLocked: false });
@@ -251,7 +265,8 @@
       relapses: getRelapses(),
       urges: getUrges(),
       meta: getMeta(),
-      rota: getRota()
+      rota: getRota(),
+      goals: getGoals()
     };
   }
   // a real, non-null, non-array object (typeof null === 'object' is the trap)
@@ -271,12 +286,13 @@
     ok = write(K.relapses, Array.isArray(obj.relapses) ? obj.relapses : []) && ok;
     ok = write(K.urges, Array.isArray(obj.urges) ? obj.urges : []) && ok;
     ok = write(K.meta, isObj(obj.meta) ? obj.meta : prev.meta) && ok;
-    // rota is optional so older backups (pre-increment-4) never fail to import
+    // rota / goals are optional so older backups never fail to import
     ok = write(K.rota, isObj(obj.rota) ? obj.rota : defaultRota()) && ok;
+    ok = write(K.goals, isObj(obj.goals) && Array.isArray(obj.goals.goals) ? obj.goals : defaultGoals()) && ok;
     if (!ok) {
       write(K.settings, prev.settings); write(K.logs, prev.logs);
       write(K.relapses, prev.relapses); write(K.urges, prev.urges);
-      write(K.meta, prev.meta); write(K.rota, prev.rota);
+      write(K.meta, prev.meta); write(K.rota, prev.rota); write(K.goals, prev.goals);
       return { ok: false, error: 'Import failed part-way (storage full?). Your previous data was restored.' };
     }
     return { ok: true };
@@ -299,6 +315,7 @@
     defaultRota: defaultRota, getRota: getRota, setRota: setRota,
     defaultSync: defaultSync, getSync: getSync, setSync: setSync,
     getMentor: getMentor, setMentor: setMentor,
+    defaultGoals: defaultGoals, getGoals: getGoals, setGoals: setGoals,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };
   global.RTI_STORE = api;

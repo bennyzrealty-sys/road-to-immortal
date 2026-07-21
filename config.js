@@ -421,6 +421,7 @@
       { id: 'protein',    title: 'Build the Temple', auto: true, metric: 'proteinHit',                 desc: 'Hit your protein target for the day.', hint: 'Log meals until the protein band is reached' },
       { id: 'allTargets', title: 'Full Slate',       auto: true, metric: 'allTargets',                 desc: 'Complete every one of today’s targets.', hint: 'Finish all targets on Today' },
       { id: 'sleep7',     title: 'The Deep Well',    auto: true, metric: 'sleepHrs',      need: 7,     desc: 'Log 7+ hours of sleep.', hint: 'Log sleep hours in the full log' },
+      { id: 'goalStep',   title: 'The Ascent Step',  auto: true, metric: 'goalTask',                   desc: 'Advance an ambition — complete at least one goal task today.', hint: 'Tick a task on The Ascent' },
       // ---- manual / self-attested ----
       { id: 'coldShower', title: 'The Cold Forge',   auto: false, desc: 'Take a cold shower — 30s minimum at the end.' },
       { id: 'sunlight',   title: 'First Light',      auto: false, desc: 'Get daylight on your face within 30 minutes of waking.' },
@@ -428,6 +429,27 @@
       { id: 'read3',      title: 'Read the Codex',   auto: false, desc: 'Read three lines from the Codex and sit with one.' },
       { id: 'posture',    title: 'The Open Frame',   auto: false, desc: 'Hold open, grounded posture through one full conversation.' }
     ],
+
+    /* ---- Ambitions (increment 7): seed templates for The Ascent ----
+       Starting shapes only — every goal, milestone and task is fully editable
+       in-app. Milestone dates are deliberately blank: the owner sets the road. */
+    goals: {
+      agendaCap: 4,   // max ambition tasks shown on the coach agenda
+      seeds: [
+        { id: 'career', title: 'The Career Ascent', why: 'Build the work that funds the life.',
+          milestones: ['Write the one-line summit — what does "made it" mean?', 'First concrete step taken (course begun / CV out / project started)', 'First visible win (interview / client / shipped thing)'],
+          tasks: [{ title: 'One hour of deep career work', cadence: 'daily' }, { title: 'Learn the craft (study / practice)', cadence: '5/week' }] },
+        { id: 'wealth', title: 'The Treasury', why: 'Money calm, counted and growing.',
+          milestones: ['Know the number — full audit of what comes in and goes out', 'One month lived on the written budget', 'Emergency floor saved'],
+          tasks: [{ title: 'Track every pound spent today', cadence: 'daily' }, { title: 'Review the treasury', cadence: 'weekly' }] },
+        { id: 'body', title: 'The Vessel', why: 'The body carries every other ambition.',
+          milestones: ['Baseline logged (weight, fat%, photos)', 'Four training weeks without a missed plan', 'First visible change confirmed by the photo record'],
+          tasks: [{ title: 'Train or walk 10k', cadence: '5/week' }] },
+        { id: 'mind', title: 'The Inner Citadel', why: 'A calm mind rules the rest.',
+          milestones: ['Seven unbroken days of practice', 'First full moon cycle of daily stillness'],
+          tasks: [{ title: 'Sit in stillness (any length)', cadence: 'daily' }, { title: 'Read ten pages', cadence: '5/week' }] }
+      ]
+    },
 
     /* ---- Movement: steps → distance → weight-aware calories ----
        A website can't read the phone's step sensor in the background (only a

@@ -8,7 +8,7 @@
    user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v13';
+var CACHE = 'rti-shell-v14';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -23,6 +23,7 @@ var SHELL = [
   './sanctum.js',
   './oracle.js',
   './sync.js',
+  './goals.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',
@@ -45,10 +46,15 @@ var MP = [
   './vendor/mediapipe/selfie_segmenter.tflite'
 ];
 
+// Precache MUST bypass the browser's HTTP cache (cache:'reload'): a new SW
+// version otherwise installs whatever stale copies the HTTP cache holds, and
+// the app "updates" to old files. Install only runs on a version bump, so the
+// extra network cost is paid exactly once per release.
+function fresh(urls) { return urls.map(function (u) { return new Request(u, { cache: 'reload' }); }); }
 self.addEventListener('install', function (e) {
   e.waitUntil(
     caches.open(CACHE)
-      .then(function (c) { return c.addAll(SHELL).then(function () { return c.addAll(MP).catch(function (err) { console.warn('[RTI] MediaPipe precache deferred to first use:', err); }); }); })
+      .then(function (c) { return c.addAll(fresh(SHELL)).then(function () { return c.addAll(fresh(MP)).catch(function (err) { console.warn('[RTI] MediaPipe precache deferred to first use:', err); }); }); })
       .then(function () { return self.skipWaiting(); })
   );
 });

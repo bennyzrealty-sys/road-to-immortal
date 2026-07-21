@@ -64,7 +64,7 @@ npx --yes serve -l 8123 .
 
 **Re-run the engine self-test** after any change to `engine.js`/`config.js`:
 ```sh
-node tools/selftest.js     # expect: 243 passed, 0 failed
+node tools/selftest.js     # expect: 262 passed, 0 failed
 ```
 
 **Regenerate icons** (only if you change the art):
@@ -439,6 +439,40 @@ Enable 2FA on the GitHub account — it is now the ledger's privacy boundary.
 stable/change-detecting hashes, `bundleHash` ignoring `exportedAt` churn while seeing
 real changes, unconfigured-by-default, token never in the export bundle, single-origin
 `apiUrl`) — `node tools/selftest.js` → **243 passed, 0 failed**.
+
+## Increment 7 — Ambitions (career goals · roadmap · daily tasks)
+
+**The Ascent** — a new screen for career/life ambitions, built on the same honesty rules
+as everything else. New `goals.js` (`RTI_GOALS`), store key `rti_goals_v1` (IN the
+export bundle + sync), SW → **v14**.
+
+- **Goal model**: ambition (title · why · horizon date) → **milestones** (the roadmap,
+  each with an optional target date) → **recurring tasks** (daily / 5× / 3× / weekly —
+  the walking). Everything is created and edited **in-app** (overlay forms); four
+  fully-editable **seed templates** (career / treasury / vessel / citadel) in
+  `config.goals.seeds` for a one-tap start.
+- **Progress is derived, never typed**: milestones fallen (70%) + real 14-day task
+  adherence (30%). The **ETA projects only from milestones actually completed** — no
+  projection exists until the first stone falls, and the caption says "projection, not
+  promise".
+- **Task completions live in the day's log** (`log.goalTasks`) — so they ride
+  export/backup/sync, join the **coach agenda** (capped at `config.goals.agendaCap`,
+  one-tap *Done ✓* from the coach card, counted in the completion ring), and power a
+  new auto **Daily Trial** ("The Ascent Step" — advance any ambition today).
+- **Reminders, in-app** (this increment's honest scope): an **overdue-milestone banner**
+  on Today, a quiet "milestone due in N days" line on the coach card (≤7 days), and
+  due-task surfacing in the agenda. Background push stays out of scope (needs a push
+  server); the Mentor's cadence (increment 8) is the out-of-app nudge.
+- **Fix that fell out of verifying this**: the service worker precache now fetches with
+  `cache: 'reload'` — before, a new SW version could install **stale files straight from
+  the browser's HTTP cache** (observed live: a v14 cache holding an old config.js).
+  Install runs once per release, so the cost is one clean fetch per bump.
+
+19 new self-test assertions (cadence math, due logic across daily/weekly/N-per-week,
+adherence + combined progress, no-ETA-until-a-milestone-falls, overdue detection and
+clearing, agenda integration incl. done-state, the goalStep trial, export/import
+round-trip incl. legacy backups without goals) — `node tools/selftest.js` →
+**262 passed, 0 failed**.
 
 ## Open risks / TODOs
 

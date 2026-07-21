@@ -418,10 +418,31 @@
     push('move', 'move', 'Move — steps / cardio', moved, { timely: pid === 'midday' || pid === 'afternoon' });
     push('mood', 'mood', 'Log today’s mood', log.mood != null, { timely: pid === 'evening' });
     push('targets', 'targets', 'Finish today’s targets', allTargets, { timely: pid === 'evening' });
+    // increment 7 — ambition tasks on today's plate join the agenda (capped at 4
+    // so the coach never drowns; the Ascent screen carries the full list). The
+    // task id rides in mealKey so the coach's one-tap "done" can find it.
+    try {
+      var G = global.RTI_GOALS;
+      if (G) {
+        var shown = 0, gls = G.active();
+        var gcap = (CFG.goals && CFG.goals.agendaCap) || 4;
+        for (var gi = 0; gi < gls.length; gi++) {
+          var tks = gls[gi].tasks;
+          for (var ti = 0; ti < tks.length && shown < gcap; ti++) {
+            var tk = tks[ti];
+            if (!tk.active) continue;
+            var doneT = G.doneOn(tk.id, asOf);
+            if (!doneT && !G.dueToday(tk, asOf)) continue;
+            push('goal-' + tk.id, 'goaltask', tk.title, doneT, { mealKey: tk.id });
+            shown++;
+          }
+        }
+      }
+    } catch (eG) {}
 
     var total = items.length, done = items.filter(function (it) { return it.done; }).length;
     var pending = items.filter(function (it) { return !it.done && !it.blocked; });
-    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
     pending.sort(function (a, b) {
       var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
       if (at !== bt) return at - bt;
@@ -482,6 +503,7 @@
       case 'sleepHrs':      return (log.sleepHrs != null && isFinite(+log.sleepHrs) && +log.sleepHrs >= trial.need);
       case 'proteinHit':    return !!nutritionAdherence(log).proteinHit;
       case 'allTargets':    return allTargetsDone(log);
+      case 'goalTask':      var gt = log.goalTasks || {}; for (var gk in gt) if (gt[gk]) return true; return false;
       default: return false;
     }
   }

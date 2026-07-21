@@ -413,6 +413,7 @@
       case 'move': q = 'Move the body — steps or cardio.'; ctrls = cpBtn('steps', '+1,000 steps', 'cyan'); break;
       case 'mood': q = 'How’s the inner weather today?'; ctrls = cpBtn('go-log', 'Log mood', ''); break;
       case 'targets': q = 'A few of today’s targets are still open ↓'; ctrls = ''; break;
+      case 'goaltask': q = p.label + ' — a step on The Ascent.'; ctrls = cpBtn('goal-done', 'Done ✓', 'gold', p.mealKey) + cpBtn('go-goals', 'The Ascent', ''); break;
     }
     return '<div class="coach-primary"><div class="cp-q">' + esc(q) + '</div>' + (ctrls ? '<div class="cp-ctrls">' + ctrls + '</div>' : '') + '</div>';
   }
@@ -440,13 +441,25 @@
         if (wtxt) whisper = '<div class="tiny muted" style="margin-top:12px;font-style:italic">' + esc(CFG.oracle.whisperIntro + wtxt) + '</div>';
       }
     } catch (e) {}
+    // increment 7 — the nearest milestone within a week gets a quiet line
+    var goalLine = '';
+    try {
+      if (window.RTI_GOALS) {
+        var upMs = RTI_GOALS.upcomingMilestones(today(), 7);
+        if (upMs.length) {
+          var um = upMs[0];
+          goalLine = '<div class="tiny muted" style="margin-top:8px">🎯 “' + esc(um.ms.title) + '” (' + esc(um.goal.title) + ') is due ' +
+            (um.inDays === 0 ? 'today' : 'in ' + um.inDays + ' day' + (um.inDays === 1 ? '' : 's')) + '.</div>';
+        }
+      }
+    } catch (eML) {}
     return '<div class="card coach">' +
       '<div class="coach-head"><div class="grow"><div class="day-num">' + esc(ag.greet) + ' · Day ' + snap.day + '</div>' +
         '<div class="tiny muted">' + esc(ag.line) + '</div></div>' + ring + '</div>' +
       (allDone ?
         '<div class="flag info" style="margin:12px 0 0">✓ Everything timely is logged. The line holds — rest in it.</div>' :
         coachPrimary(ag) + (list ? '<div class="coach-list">' + list + '</div>' : '') + planHint) +
-      whisper +
+      goalLine + whisper +
     '</div>';
   }
   function wireCoach() {
@@ -466,6 +479,13 @@
         if (a === 'steps') { quickAction('steps', b); return; }
         if (a === 'go-nutrition') { state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
         if (a === 'go-log') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'go-goals') { state.tab = 'goals'; window.scrollTo(0, 0); render(); return; }
+        // increment 7 — one-tap "done" on an ambition task (task id rides in data-mk)
+        if (a === 'goal-done') {
+          var gtid = b.getAttribute('data-mk');
+          if (gtid) { var gg = S.getLog(d).goalTasks || {}; gg[gtid] = true; S.patchLog(d, { goalTasks: gg }); toast('Ambition advanced.'); }
+          render(); return;
+        }
       };
     });
     appEl.querySelectorAll('[data-ci]').forEach(function (b) {
@@ -478,6 +498,11 @@
         if (k === 'move') { quickAction('steps', b); return; }
         if (k === 'mood') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
         if (k === 'targets') { window.scrollTo(0, document.body.scrollHeight); return; }
+        if (k === 'goaltask') {
+          var tid = b.getAttribute('data-mk');
+          if (tid) { var gl = S.getLog(d).goalTasks || {}; gl[tid] = true; S.patchLog(d, { goalTasks: gl }); toast('Ambition advanced.'); }
+          render(); return;
+        }
       };
     });
   }
@@ -575,13 +600,24 @@
       var ud = U.addDays(s.startDate, ui), lg = allLogs[ud];
       if (!relSet[ud] && !(lg && lg.clean != null)) unloggedDays++;
     }
+    // increment 7 — an overdue milestone deserves a banner, not silence
+    var goalBanner = '';
+    try {
+      if (window.RTI_GOALS) {
+        var od = RTI_GOALS.overdueMilestones(today());
+        if (od.length) goalBanner = '<div class="card" style="border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.07)">' +
+          '<div class="row"><div class="grow"><b>Overdue milestone</b><div class="tiny muted">“' + esc(od[0].ms.title) + '” (' + esc(od[0].goal.title) + ') passed its date' +
+          (od.length > 1 ? ' — and ' + (od.length - 1) + ' more' : '') + '. Re-date it honestly, or fell it.</div></div>' +
+          '<button class="btn sm cyan" data-go="goals">Open</button></div></div>';
+      }
+    } catch (eGB) {}
     var catchupBanner = (unloggedDays >= 2) ?
       '<div class="card" style="border-color:rgba(98,216,255,.35);background:rgba(98,216,255,.07)">' +
         '<div class="row"><div class="grow"><b>Catch up your streak</b><div class="tiny muted">You’re on Day ' + snap.day + ' with a ' + snap.streak.current + '-day streak. ' + unloggedDays + ' earlier day' + (unloggedDays === 1 ? '' : 's') + ' aren’t logged — if you held clean then, record them so Immortal Power &amp; your stage reflect it.</div></div>' +
         '<button class="btn sm cyan" data-go="settings">Catch up</button></div></div>' : '';
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner + photoBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
+      header('today') + backupBanner + photoBanner + goalBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -605,6 +641,7 @@
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
+      '<button class="btn ghost full" data-go="goals" style="margin-top:10px">🎯 The Ascent — ambitions · roadmap · daily tasks</button>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
       '<button class="btn ghost full" data-go="sanctum" style="margin-top:10px">🕉 Sanctum — breath · mala · cosmos</button>' +
     '</div>';
@@ -2338,6 +2375,204 @@
     };
   }
 
+  /* ---- THE ASCENT — ambitions · roadmap · daily tasks (increment 7) ---- */
+  // small overlay form: fields -> values, Save/Cancel. Used by every editor here.
+  function goalOverlay(title, fields, onSave) {
+    var inner = fields.map(function (f) {
+      if (f.type === 'select') {
+        var opts = f.options.map(function (o) { return '<option value="' + esc(o.v) + '">' + esc(o.l) + '</option>'; }).join('');
+        return '<label class="field"><span>' + esc(f.label) + '</span><select id="' + f.id + '">' + opts + '</select></label>';
+      }
+      return '<label class="field"><span>' + esc(f.label) + '</span><input type="' + (f.type || 'text') + '" id="' + f.id + '" value="' + esc(f.value || '') + '" placeholder="' + esc(f.placeholder || '') + '"></label>';
+    }).join('');
+    var ov = h('<div class="overlay"><div class="card" style="width:min(420px,92vw)"><h3>' + esc(title) + '</h3>' + inner +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn gold" data-x="save">Save</button><button class="btn" data-x="cancel">Cancel</button></div></div></div>');
+    ov.querySelector('[data-x=cancel]').onclick = function () { ov.remove(); };
+    ov.querySelector('[data-x=save]').onclick = function () {
+      var vals = {};
+      fields.forEach(function (f) { var el = ov.querySelector('#' + f.id); vals[f.id] = el ? el.value : ''; });
+      ov.remove(); onSave(vals);
+    };
+    document.body.appendChild(ov);
+  }
+  var CADENCE_OPTS = [
+    { v: 'daily', l: 'Every day' }, { v: '5/week', l: '5× a week' },
+    { v: '3/week', l: '3× a week' }, { v: 'weekly', l: 'Once a week' }
+  ];
+  function goalCard(g, d) {
+    var G = RTI_GOALS, p = G.progress(g, d), next = G.nextMilestone(g);
+    var horizon = g.horizon
+      ? (U.daysBetween(d, g.horizon) >= 0
+          ? U.daysBetween(d, g.horizon) + ' days to the horizon (' + esc(g.horizon) + ')'
+          : 'the horizon date has passed — set a new one')
+      : 'no horizon date set';
+    var eta = '';
+    if (p.eta) eta = '<div class="tiny muted" style="margin-top:4px">At your true pace, the last milestone falls near <b>' + esc(p.eta.iso) + '</b> (~' + p.eta.days + 'd) — a projection from milestones already fallen, not a promise.</div>';
+    else if (p.msTotal && !p.msDone) eta = '<div class="tiny faint" style="margin-top:4px">No projection yet — fell the first milestone and the road dates itself.</div>';
+    var msRows = g.milestones.map(function (m) {
+      var mark = m.doneISO ? '✓' : '◻';
+      var when = m.doneISO ? 'fell ' + esc(m.doneISO) : (m.targetISO ? 'due ' + esc(m.targetISO) + (m.targetISO < d ? ' · OVERDUE' : '') : 'no date');
+      return '<div class="row" style="margin:4px 0;align-items:center">' +
+        '<button class="btn sm ' + (m.doneISO ? 'gold' : '') + '" data-ms="' + esc(g.id) + ':' + esc(m.id) + '" style="flex:0 0 auto">' + mark + '</button>' +
+        '<div class="grow" style="margin-left:8px"><div>' + esc(m.title) + '</div><div class="tiny faint">' + when + '</div></div>' +
+        '<button class="icon-btn" data-msdel="' + esc(g.id) + ':' + esc(m.id) + '" aria-label="Delete milestone">✕</button></div>';
+    }).join('');
+    var taskRows = g.tasks.map(function (t) {
+      var doneToday = G.doneOn(t.id, d);
+      var w = G.doneCountInWindow(t.id, d, 7), per = G.expectedPerWeek(t.cadence);
+      return '<div class="row" style="margin:4px 0;align-items:center">' +
+        '<button class="btn sm ' + (doneToday ? 'gold' : 'cyan') + '" data-task="' + esc(g.id) + ':' + esc(t.id) + '" style="flex:0 0 auto"' + (t.active ? '' : ' disabled') + '>' + (doneToday ? '✓ today' : 'Do it') + '</button>' +
+        '<div class="grow" style="margin-left:8px"><div' + (t.active ? '' : ' style="opacity:.5"') + '>' + esc(t.title) + '</div>' +
+        '<div class="tiny faint">' + esc(G.cadenceLabel(t.cadence)) + ' · ' + w + '/' + per + ' this week' + (t.active ? '' : ' · paused') + '</div></div>' +
+        '<button class="btn sm ghost" data-taskpause="' + esc(g.id) + ':' + esc(t.id) + '" style="flex:0 0 auto">' + (t.active ? '⏸' : '▶') + '</button>' +
+        '<button class="icon-btn" data-taskdel="' + esc(g.id) + ':' + esc(t.id) + '" aria-label="Delete task">✕</button></div>';
+    }).join('');
+    return '<div class="card">' +
+      '<div class="row"><div class="grow"><h3 style="margin:0">' + esc(g.title) + '</h3>' +
+        (g.why ? '<div class="tiny muted" style="font-style:italic">' + esc(g.why) + '</div>' : '') +
+        '<div class="tiny faint" style="margin-top:2px">' + horizon + '</div></div>' +
+        '<div style="text-align:right"><b style="font-size:22px">' + p.combined + '%</b><div class="tiny faint">derived</div></div></div>' +
+      '<div class="bar" style="margin:8px 0"><i data-fill="' + p.combined + '"></i></div>' +
+      '<div class="tiny muted">' + p.msDone + '/' + p.msTotal + ' milestones' + (p.adherence != null ? ' · task adherence ' + p.adherence + '% (14d)' : '') + '</div>' + eta +
+      (next ? '<div class="flag info" style="margin:8px 0">Next on the road: <b>' + esc(next.title) + '</b>' + (next.targetISO ? ' · due ' + esc(next.targetISO) : '') + '</div>' : '') +
+      '<h3 style="margin-top:10px">Roadmap</h3>' + (msRows || '<div class="tiny faint">No milestones yet — the road needs stones.</div>') +
+      '<button class="btn sm ghost" data-addms="' + esc(g.id) + '" style="margin-top:6px">+ milestone</button>' +
+      '<h3 style="margin-top:12px">Daily tasks</h3>' + (taskRows || '<div class="tiny faint">No recurring tasks yet.</div>') +
+      '<button class="btn sm ghost" data-addtask="' + esc(g.id) + '" style="margin-top:6px">+ task</button>' +
+      '<div class="btn-grid" style="margin-top:12px"><button class="btn sm" data-goaledit="' + esc(g.id) + '">Edit</button>' +
+      '<button class="btn sm ghost" data-goaldel="' + esc(g.id) + '" style="color:#ff8aa8">' + (g.archived ? 'Delete' : 'Archive') + '</button></div>' +
+    '</div>';
+  }
+  function screenGoals() {
+    var d = today();
+    if (!window.RTI_GOALS) {
+      appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Ascent') + '<div class="card">The goals module failed to load.</div></div>'));
+      return;
+    }
+    var goals = RTI_GOALS.list().filter(function (g) { return !g.archived; });
+    var archived = RTI_GOALS.list().filter(function (g) { return g.archived; });
+    var seeds = (CFG.goals && CFG.goals.seeds) || [];
+    var seedBtns = seeds.map(function (sd) { return '<button class="btn sm ghost" data-seed="' + esc(sd.id) + '">' + esc(sd.title) + '</button>'; }).join('');
+    var html = '<div class="screen">' + header('The Ascent') +
+      '<div class="card"><h3>🎯 Ambitions</h3>' +
+      '<div class="tiny muted" style="margin-bottom:8px">Career and life goals with a real roadmap. Milestones mark the road; recurring tasks are the walking. Progress is <b>derived</b> — milestones fallen (70%) + your actual 14-day task adherence (30%) — and an ETA only appears once the first milestone has truly fallen.</div>' +
+      '<button class="btn gold" id="goal-new">+ New ambition</button>' +
+      (goals.length ? '' : '<div class="tiny faint" style="margin-top:10px">Or begin from a seed (fully editable after):</div><div class="btn-grid" style="margin-top:6px">' + seedBtns + '</div>') +
+      '</div>' +
+      goals.map(function (g) { return goalCard(g, d); }).join('') +
+      (archived.length ? '<div class="card"><h3>Archived</h3>' + archived.map(function (g) {
+        return '<div class="row" style="margin:4px 0"><div class="grow muted">' + esc(g.title) + '</div>' +
+          '<button class="btn sm" data-goalun="' + esc(g.id) + '">Restore</button>' +
+          '<button class="btn sm ghost" data-goaldel="' + esc(g.id) + '" style="color:#ff8aa8">Delete</button></div>';
+      }).join('') + '</div>' : '') +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl);
+    wireGoals(d);
+  }
+  function wireGoals(d) {
+    var G = RTI_GOALS;
+    function pair(el, attr) { var v = el.getAttribute(attr).split(':'); return { g: v[0], x: v[1] }; }
+    var nb = appEl.querySelector('#goal-new');
+    if (nb) nb.onclick = function () {
+      goalOverlay('New ambition', [
+        { id: 'title', label: 'The ambition', placeholder: 'e.g. Become a senior engineer' },
+        { id: 'why', label: 'Why it matters', placeholder: 'the fuel for the hard days' },
+        { id: 'horizon', label: 'Horizon date (optional)', type: 'date' }
+      ], function (v) {
+        if (!v.title) { toast('An ambition needs a name.'); return; }
+        G.addGoal({ title: v.title, why: v.why, horizon: v.horizon || null });
+        toast('The Ascent begins.'); render();
+      });
+    };
+    appEl.querySelectorAll('[data-seed]').forEach(function (b) {
+      b.onclick = function () {
+        var seeds = (CFG.goals && CFG.goals.seeds) || [], sd = null;
+        for (var i = 0; i < seeds.length; i++) if (seeds[i].id === b.getAttribute('data-seed')) sd = seeds[i];
+        if (!sd) return;
+        var g = G.addGoal({ title: sd.title, why: sd.why, horizon: null });
+        (sd.milestones || []).forEach(function (mt) { G.addMilestone(g.id, { title: mt }); });
+        (sd.tasks || []).forEach(function (tk) { G.addTask(g.id, tk); });
+        toast('Seed planted — edit everything to fit your road.'); render();
+      };
+    });
+    appEl.querySelectorAll('[data-ms]').forEach(function (b) {
+      b.onclick = function () {
+        var p = pair(b, 'data-ms'), goal = G.byId(p.g), wasDone = false;
+        if (goal) for (var i = 0; i < goal.milestones.length; i++) if (goal.milestones[i].id === p.x) wasDone = !!goal.milestones[i].doneISO;
+        G.toggleMilestone(p.g, p.x, d);
+        if (!wasDone) { if (!reducedMotion()) celebrateSmall(); toast('Milestone fallen. The road shortens.'); }
+        render();
+      };
+    });
+    appEl.querySelectorAll('[data-msdel]').forEach(function (b) {
+      b.onclick = function () { var p = pair(b, 'data-msdel'); if (confirm('Delete this milestone?')) { G.removeMilestone(p.g, p.x); render(); } };
+    });
+    appEl.querySelectorAll('[data-task]').forEach(function (b) {
+      b.onclick = function () {
+        var p = pair(b, 'data-task');
+        var gl = S.getLog(d).goalTasks || {};
+        gl[p.x] = !gl[p.x];
+        S.patchLog(d, { goalTasks: gl });
+        if (gl[p.x]) toast('Ambition advanced.');
+        render();
+      };
+    });
+    appEl.querySelectorAll('[data-taskpause]').forEach(function (b) {
+      b.onclick = function () { var p = pair(b, 'data-taskpause'); G.toggleTask(p.g, p.x); render(); };
+    });
+    appEl.querySelectorAll('[data-taskdel]').forEach(function (b) {
+      b.onclick = function () { var p = pair(b, 'data-taskdel'); if (confirm('Delete this task? Past completions stay in your logs.')) { G.removeTask(p.g, p.x); render(); } };
+    });
+    appEl.querySelectorAll('[data-addms]').forEach(function (b) {
+      b.onclick = function () {
+        var gid = b.getAttribute('data-addms');
+        goalOverlay('New milestone', [
+          { id: 'title', label: 'The milestone', placeholder: 'a concrete, finishable stone' },
+          { id: 'targetISO', label: 'Target date (optional)', type: 'date' }
+        ], function (v) {
+          if (!v.title) { toast('A milestone needs a name.'); return; }
+          G.addMilestone(gid, { title: v.title, targetISO: v.targetISO || null }); render();
+        });
+      };
+    });
+    appEl.querySelectorAll('[data-addtask]').forEach(function (b) {
+      b.onclick = function () {
+        var gid = b.getAttribute('data-addtask');
+        goalOverlay('New recurring task', [
+          { id: 'title', label: 'The task', placeholder: 'e.g. One hour of deep work' },
+          { id: 'cadence', label: 'How often', type: 'select', options: CADENCE_OPTS }
+        ], function (v) {
+          if (!v.title) { toast('A task needs a name.'); return; }
+          G.addTask(gid, { title: v.title, cadence: v.cadence || 'daily' }); render();
+        });
+      };
+    });
+    appEl.querySelectorAll('[data-goaledit]').forEach(function (b) {
+      b.onclick = function () {
+        var g = G.byId(b.getAttribute('data-goaledit'));
+        if (!g) return;
+        goalOverlay('Edit ambition', [
+          { id: 'title', label: 'The ambition', value: g.title },
+          { id: 'why', label: 'Why it matters', value: g.why },
+          { id: 'horizon', label: 'Horizon date', type: 'date', value: g.horizon || '' }
+        ], function (v) {
+          G.patchGoal(g.id, { title: v.title || g.title, why: v.why, horizon: v.horizon || null }); render();
+        });
+      };
+    });
+    appEl.querySelectorAll('[data-goaldel]').forEach(function (b) {
+      b.onclick = function () {
+        var g = G.byId(b.getAttribute('data-goaldel'));
+        if (!g) return;
+        if (!g.archived) { if (confirm('Archive “' + g.title + '”? It leaves the coach and the Ascent, but keeps its history.')) { G.patchGoal(g.id, { archived: true }); render(); } }
+        else if (confirm('Delete “' + g.title + '” permanently? Task completions stay in your daily logs.')) { G.removeGoal(g.id); render(); }
+      };
+    });
+    appEl.querySelectorAll('[data-goalun]').forEach(function (b) {
+      b.onclick = function () { G.patchGoal(b.getAttribute('data-goalun'), { archived: false }); render(); };
+    });
+  }
+
   /* ---- SETTINGS · cloud sync card (increment 6 — The Bridge) ---- */
   function syncCard() {
     var sy = S.getSync(), on = window.RTI_SYNC && RTI_SYNC.configured(sy);
@@ -2526,7 +2761,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -2536,7 +2771,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum' || state.tab === 'goals'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });

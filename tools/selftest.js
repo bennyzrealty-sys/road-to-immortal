@@ -13,7 +13,7 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
@@ -676,6 +676,64 @@ check('sync bundleHash stable across exportedAt churn', bh1, bh2);
 S.saveLog('2026-06-10', Object.assign(S.blankLog('2026-06-10'), { clean: true }));
 check('sync bundleHash sees a real ledger change', SY.bundleHash(S.exportBundle()) === bh1, false);
 S.setSync({ token: '', lastStatus: null });
+
+/* =================== INCREMENT 7 — AMBITIONS (goals · roadmap · tasks) =================== */
+var G = global.RTI_GOALS;
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var AS = '2026-07-21';
+var gg = G.addGoal({ title: 'Career Ascent', why: 'test', horizon: '2026-12-31' }, '2026-07-01');
+G.addMilestone(gg.id, { title: 'M1', targetISO: '2026-07-10' });
+G.addMilestone(gg.id, { title: 'M2', targetISO: '2026-08-10' });
+G.addTask(gg.id, { title: 'Deep work', cadence: 'daily' });
+G.addTask(gg.id, { title: 'Weekly review', cadence: 'weekly' });
+G.addTask(gg.id, { title: 'Practice', cadence: '3/week' });
+var g0 = G.byId(gg.id);
+check('goal created with 2 milestones + 3 tasks', g0.milestones.length + '|' + g0.tasks.length, '2|3');
+check('cadence math: daily|weekly|3/week per week', G.expectedPerWeek('daily') + '|' + G.expectedPerWeek('weekly') + '|' + G.expectedPerWeek('3/week'), '7|1|3');
+// due logic: nothing done -> all three due
+check('all tasks due when none done', G.dueTasks(AS).length, 3);
+// mark the daily done today -> only daily leaves the plate
+var t0 = g0.tasks[0], t1 = g0.tasks[1], t2 = g0.tasks[2];
+S.patchLog(AS, { goalTasks: (function (o) { o[t0.id] = true; return o; })({}) });
+check('daily done today drops off the due list', G.dueTasks(AS).length, 2);
+// weekly done 3 days ago -> not due for the rest of the 7-day window
+S.patchLog(U.addDays(AS, -3), { goalTasks: (function (o) { o[t1.id] = true; return o; })({}) });
+check('weekly done in-window is not due', G.dueToday(t1, AS), false);
+// 3/week with 2 done this week -> still due; with 3 done -> not
+S.patchLog(U.addDays(AS, -1), { goalTasks: (function (o) { o[t2.id] = true; return o; })({}) });
+S.patchLog(U.addDays(AS, -2), { goalTasks: (function (o) { o[t2.id] = true; return o; })({}) });
+check('3/week with 2 done is still due', G.dueToday(t2, AS), true);
+S.patchLog(U.addDays(AS, -4), { goalTasks: (function (o) { o[t2.id] = true; return o; })({}) });
+check('3/week with 3 done is satisfied', G.dueToday(t2, AS), false);
+// progress: no milestone fallen -> no ETA (no fantasy dates)
+var p0 = G.progress(G.byId(gg.id), AS);
+check('no ETA before the first milestone falls', p0.eta, null);
+check('overdue milestone detected (M1 due 07-10)', G.overdueMilestones(AS).length, 1);
+// fell M1 -> ETA appears, projected from the real rate
+G.toggleMilestone(gg.id, g0.milestones[0].id, AS);
+var p1 = G.progress(G.byId(gg.id), AS);
+check('milestone fell -> 1/2 done', p1.msDone + '/' + p1.msTotal, '1/2');
+check('ETA appears once a milestone has fallen', !!p1.eta && p1.eta.days > 0, true);
+check('overdue clears when the milestone falls', G.overdueMilestones(AS).length, 0);
+// agenda integration: today's plate = done-today (t0) — t1/t2 satisfied, so off it
+var ag7 = E.dailyAgenda(st, AS, 14);
+var goalItems = ag7.items.filter(function (it) { return it.kind === 'goaltask'; });
+check('agenda carries exactly the done-today task', goalItems.length + '|' + goalItems[0].done, '1|true');
+G.addTask(gg.id, { title: 'Fresh daily task', cadence: 'daily' });
+var ag7b = E.dailyAgenda(st, AS, 14);
+var goalItems2 = ag7b.items.filter(function (it) { return it.kind === 'goaltask'; });
+check('a never-done daily task joins the agenda as due', goalItems2.length + '|' + goalItems2.filter(function (it) { return !it.done; }).length, '2|1');
+// the goalTask trial metric (goalStep is auto; a done task on the day = met)
+var goalTrial = null; global.RTI_CONFIG.trials.forEach(function (t) { if (t.id === 'goalStep') goalTrial = t; });
+check('goalStep trial exists and is auto', !!goalTrial && goalTrial.auto === true && goalTrial.metric === 'goalTask', true);
+// goals ride the export/import round-trip
+var bundle7 = S.exportBundle();
+check('goals included in the export bundle', bundle7.goals.goals.length, 1);
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+var imp7 = S.importBundle(bundle7);
+check('goals survive import', imp7.ok && S.getGoals().goals[0].title, 'Career Ascent');
+check('old backups without goals still import', S.importBundle({ app: 'road-to-immortal', schema: 1, settings: S.defaultSettings(), logs: {} }).ok, true);
+check('missing goals imports as empty, not broken', S.getGoals().goals.length, 0);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
