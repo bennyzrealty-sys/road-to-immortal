@@ -233,6 +233,22 @@
     /* ---- Backup reminder cadence ---- */
     backup: { remindEveryDays: 7 },
 
+    /* ---- App version + update path (increment 10 — The Herald) ----
+       appVersion is shown in Settings and MUST move with sw.js CACHE (v18 ⇔
+       'v18'): it is the owner's only way to see which increment the phone
+       actually runs. swCheckMinMs throttles the visibility-driven
+       registration.update() so foregrounding the PWA all day costs at most a
+       few update checks. */
+    appVersion: 'v18 · Increment 10',
+    sw: { checkMinMs: 60 * 60 * 1000 },
+
+    /* ---- Today banners (increment 10) ----
+       At most maxShown banner cards render above the coach; the rest collapse
+       into one tappable "N more waiting" line so reminders can never bury the
+       day's plate. catchupSnoozeDays: "Later" on the catch-up banner quiets it
+       for this many days (it snoozes the NAG only — no day is ever marked). */
+    banners: { maxShown: 2, catchupSnoozeDays: 7 },
+
     /* ---- Ascension / Energy Bank (increment 2) ----
        Correlation between Chi and outcomes stays LOCKED until there is
        enough real data to mean anything. All thresholds tunable. */
@@ -435,8 +451,13 @@
        in-app. Milestone dates are deliberately blank: the owner sets the road. */
     goals: {
       agendaCap: 4,   // max ambition tasks shown on the coach agenda
-      msAgendaCap: 2, // max due/chase milestone items on the coach agenda
+      msAgendaCap: 2, // max CHASE items on the coach agenda (due-day items get
+                      //   their own equal budget — a chase must never crowd a
+                      //   milestone off the agenda on its only eligible day)
       chaseBumpDays: 3, // "Chased ✓" pushes the chase-by date this many days out
+      coachListCap: 6,  // coach-card rows before the "+N more" expander
+      lookaheadDays: 7, // "the road this week" window on Today
+      lookaheadCap: 4,  // max rows in that strip (overdue+chase+due, nearest first)
       seeds: [
         { id: 'career', title: 'The Career Ascent', why: 'Build the work that funds the life.',
           milestones: ['Write the one-line summit — what does "made it" mean?', 'First concrete step taken (course begun / CV out / project started)', 'First visible win (interview / client / shipped thing)'],

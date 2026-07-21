@@ -209,26 +209,36 @@
   }
 
   /* ---------- auto-sync: quiet, throttled, change-driven ---------- */
+  // app.js sets onPulled; called once per pull that actually returned data so
+  // the UI can re-render the same session (a fresh campaign must not wait for
+  // the next navigation to become visible).
   var lastAttempt = 0;
   function maybeAutoSync(reason) {
     var c = S.getSync();
-    if (!configured(c) || c.auto === false || !online()) return;
-    if (c.remoteForeign) return;             // waiting on the owner's decision
+    if (!configured(c) || !online()) return;
     var now = Date.now();
     if (now - lastAttempt < 60000) return;   // at most once a minute
     lastAttempt = now;
-    var changed = true;
-    try { changed = bundleHash(S.exportBundle()) !== c.lastPushedHash; } catch (e) {}
-    if (changed) pushBackup(null);
-    pullMentor(null);
-    pullTemplates(null);
+    // Only the PUSH respects auto-off and the foreign-copy stand-off — the
+    // mentor/template pulls are read-only and always safe (increment 10:
+    // gating them behind push conditions silenced campaign delivery).
+    if (c.auto !== false && !c.remoteForeign) {
+      var changed = true;
+      try { changed = bundleHash(S.exportBundle()) !== c.lastPushedHash; } catch (e) {}
+      if (changed) pushBackup(null);
+    }
+    function tell(err, obj) { try { if (obj && api.onPulled) api.onPulled(reason); } catch (e2) {} }
+    pullMentor(tell);
+    pullTemplates(tell);
   }
 
-  global.RTI_SYNC = {
+  var api = {
     b64encode: b64encode, b64decode: b64decode, hashStr: hashStr, bundleHash: bundleHash,
     configured: configured, apiUrl: apiUrl,
     pushBackup: pushBackup, overwriteCloud: overwriteCloud,
     restoreFromCloud: restoreFromCloud, pushPhotos: pushPhotos,
-    pullMentor: pullMentor, pullTemplates: pullTemplates, maybeAutoSync: maybeAutoSync
+    pullMentor: pullMentor, pullTemplates: pullTemplates, maybeAutoSync: maybeAutoSync,
+    onPulled: null // app.js hook: called (reason) after a pull lands fresh data
   };
+  global.RTI_SYNC = api;
 })(typeof window !== 'undefined' ? window : this);

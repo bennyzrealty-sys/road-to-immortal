@@ -40,6 +40,15 @@
     var seed = U.daysBetween('2020-01-01', today());
     return arr[((seed % arr.length) + arr.length) % arr.length];
   }
+  var FSD_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var FSD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fmtShortDate(iso) { // 'YYYY-MM-DD' -> 'Mon 27 Jul' (raw string on garbage)
+    try {
+      var d = U.fromISO(iso);
+      if (!d || isNaN(d.getTime())) return String(iso || '');
+      return FSD_DOW[d.getDay()] + ' ' + d.getDate() + ' ' + FSD_MON[d.getMonth()];
+    } catch (e) { return String(iso || ''); }
+  }
   function shieldSVG(filled) {
     return '<svg class="shield' + (filled ? '' : ' empty') + '" viewBox="0 0 24 28"><path d="M12 1 L22 5 V13 C22 21 12 27 12 27 C12 27 2 21 2 13 V5 Z" fill="' +
       (filled ? 'url(#sg)' : 'rgba(255,255,255,0.15)') + '" stroke="rgba(98,216,255,0.6)"/>' +
@@ -424,12 +433,24 @@
     var hour = new Date().getHours();
     var ag = E.dailyAgenda(snap.settings, today(), hour);
     var ring = miniRing(ag.completionPct);
-    var pend = ag.items.filter(function (it) { return !it.done && !it.blocked && (!ag.primary || it.id !== ag.primary.id); });
-    pend.sort(function (a, b) { return (a.timely ? 0 : 1) - (b.timely ? 0 : 1); });
-    var list = pend.slice(0, 6).map(function (it) {
+    // the engine's `pending` IS the order (deadlines outrank hygiene) — the
+    // card must never re-sort items[] itself: that buried Chase:/Due: items
+    // below six meal rows for a whole increment (fixed in increment 10)
+    var pend = (ag.pending || []).filter(function (it) { return !ag.primary || it.id !== ag.primary.id; });
+    var cap = (CFG.goals && CFG.goals.coachListCap) || 6;
+    var shown = state._coachExpand ? pend : pend.slice(0, cap);
+    var list = shown.map(function (it) {
       return '<button class="coach-item' + (it.timely ? ' now' : '') + '" data-ci="' + it.kind + '" data-mk="' + (it.mealKey || '') + '">' +
         '<span class="ci-dot"></span><span class="ci-l">' + esc(it.label) + '</span>' + (it.timely ? '<span class="ci-now">now</span>' : '') + '</button>';
     }).join('');
+    // never hide the rest silently — the cut list is what buried the campaign
+    if (pend.length > shown.length) {
+      list += '<button class="coach-item" data-cp="coach-expand"><span class="ci-dot"></span>' +
+        '<span class="ci-l faint">+ ' + (pend.length - shown.length) + ' more on today’s plate — show all</span></button>';
+    } else if (state._coachExpand && pend.length > cap) {
+      list += '<button class="coach-item" data-cp="coach-collapse"><span class="ci-dot"></span>' +
+        '<span class="ci-l faint">Show fewer</span></button>';
+    }
     var blockedPlan = ag.items.some(function (it) { return it.kind === 'meal' && it.blocked; });
     var planHint = (blockedPlan && pend.every(function (it) { return it.kind !== 'meal'; })) ?
       '<div class="tiny faint" style="margin-top:8px">Pick a day-type &amp; plan to unlock meal logging.</div>' : '';
@@ -444,15 +465,29 @@
         if (wtxt) whisper = '<div class="tiny muted" style="margin-top:12px;font-style:italic">' + esc(CFG.oracle.whisperIntro + wtxt) + '</div>';
       }
     } catch (e) {}
-    // increment 7 — the nearest milestone within a week gets a quiet line
+    // increment 10 — "the road this week": every deadline-shaped thing within
+    // lookaheadDays, as REAL tappable rows (was: one tiny dead line showing a
+    // single milestone). Rows navigate to The Ascent — deliberately no one-tap
+    // Done here: future and overdue items must never invite a dishonest tap.
     var goalLine = '';
     try {
       if (window.RTI_GOALS) {
-        var upMs = RTI_GOALS.upcomingMilestones(today(), 7);
-        if (upMs.length) {
-          var um = upMs[0];
-          goalLine = '<div class="tiny muted" style="margin-top:8px">🎯 “' + esc(um.ms.title) + '” (' + esc(um.goal.title) + ') is due ' +
-            (um.inDays === 0 ? 'today' : 'in ' + um.inDays + ' day' + (um.inDays === 1 ? '' : 's')) + '.</div>';
+        var road = RTI_GOALS.roadAhead(today(), (CFG.goals && CFG.goals.lookaheadDays) || 7);
+        var roadCap = (CFG.goals && CFG.goals.lookaheadCap) || 4;
+        if (road.length) {
+          var rows = road.slice(0, roadCap).map(function (r) {
+            var when = r.kind === 'overdue' ? ('overdue ' + (-r.inDays) + 'd — re-date or fell it')
+                     : r.kind === 'chase' ? (r.inDays === 0 ? 'chase today' : 'chase ' + fmtShortDate(r.ms.chaseISO))
+                     : (r.inDays === 0 ? 'due today' : 'due ' + fmtShortDate(r.ms.targetISO));
+            var urgent = r.kind === 'overdue' || r.inDays === 0;
+            return '<button class="coach-item" data-go="goals"><span class="ci-dot"' +
+              (urgent ? ' style="background:' + (r.kind === 'overdue' ? '#ff8aa8' : '#ffd782') + '"' : '') + '></span>' +
+              '<span class="ci-l">' + esc(r.ms.title) +
+              '<span class="tiny" style="display:block;' + (urgent ? 'color:' + (r.kind === 'overdue' ? '#ff8aa8' : '#ffd782') : 'opacity:.6') + '">' + esc(when) + '</span></span></button>';
+          }).join('');
+          goalLine = '<div class="tiny muted" style="margin-top:12px">🗺 The road this week</div><div class="coach-list">' + rows +
+            (road.length > roadCap ? '<button class="coach-item" data-go="goals"><span class="ci-dot"></span><span class="ci-l faint">+ ' + (road.length - roadCap) + ' more on The Ascent</span></button>' : '') +
+            '</div>';
         }
       }
     } catch (eML) {}
@@ -475,6 +510,9 @@
         // (carried in data-mk) exactly like the shift/rest buttons above.
         if (a === 'rota-confirm') { var rdt = b.getAttribute('data-mk') || 'shift'; var rn = S.getLog(d).nutrition || {}; rn.dayType = rdt; rn.templateId = null; S.patchLog(d, { nutrition: rn }); state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
         if (a === 'rota-change') { state._coachChange = true; render(); return; }
+        // increment 10 — the "+N more" expander (state resets on reload/day)
+        if (a === 'coach-expand') { state._coachExpand = true; render(); return; }
+        if (a === 'coach-collapse') { state._coachExpand = false; render(); return; }
         if (a === 'held') { S.patchLog(d, { clean: true }); toast('Held. The line holds.'); render(); return; }
         if (a === 'slip') { S.patchLog(d, { clean: false }); toast('Logged honestly. Begin again.'); render(); return; }
         if (a === 'breath') { quickAction('breath', b); return; }
@@ -510,7 +548,12 @@
         if (k === 'med') { quickAction('med', b); return; }
         if (k === 'move') { quickAction('steps', b); return; }
         if (k === 'mood') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
-        if (k === 'targets') { window.scrollTo(0, document.body.scrollHeight); return; }
+        if (k === 'targets') { // scroll TO the targets card, not past it (increment 10)
+          var tc = appEl.querySelector('#targets-card');
+          if (tc && tc.scrollIntoView) tc.scrollIntoView({ block: 'start' });
+          else window.scrollTo(0, document.body.scrollHeight);
+          return;
+        }
         if (k === 'goaltask') {
           var tid = b.getAttribute('data-mk');
           if (tid) { var gl = S.getLog(d).goalTasks || {}; gl[tid] = true; S.patchLog(d, { goalTasks: gl }); toast('Ambition advanced.'); }
@@ -583,6 +626,28 @@
     }, 40);
   }
 
+  /* ---- nav badges (increment 10): a quiet gold dot when a wall screen
+     holds something actionable — the buttons used to carry zero state ---- */
+  function navDot(on) { return on ? ' <span style="color:#ffd782">●</span>' : ''; }
+  function navGoalsPending() {
+    try {
+      if (!window.RTI_GOALS) return false;
+      var reg = S.getTemplates(), all = RTI_GOALS.list();
+      var waiting = ((reg && reg.templates) || []).some(function (t) {
+        return t && t.id && t.title && !all.some(function (g) { return g.templateId === t.id; });
+      });
+      if (waiting) return true;
+      var road = RTI_GOALS.roadAhead(today(), 0); // overdue / chase-today / due-today
+      return road.length > 0;
+    } catch (e) { return false; }
+  }
+  function navMentorUnread() {
+    try {
+      var mm = S.getMentor();
+      return !!(mm && mm.data && mm.sha && S.getMeta().lastMentorSeenSha !== mm.sha);
+    } catch (e) { return false; }
+  }
+
   function screenToday() {
     var snap = E.snapshot(today());
     var s = snap.settings, m = snap.meters;
@@ -593,62 +658,102 @@
     var done = log.todayTargetsDone || [];
     var checklist = targets.map(function (t, idx) {
       var on = done[idx] === true;
-      return '<div class="check' + (on ? ' on' : '') + '" data-target="' + idx + '"><span class="box">' + (on ? '✓' : '') + '</span><span class="txt">' + esc(t) + '</span></div>';
+      // role/tabindex: these rows are tappable but were bare divs — invisible
+      // to keyboards and screen readers (increment 10)
+      return '<div class="check' + (on ? ' on' : '') + '" data-target="' + idx + '" role="button" tabindex="0" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="box">' + (on ? '✓' : '') + '</span><span class="txt">' + esc(t) + '</span></div>';
     }).join('');
 
-    // backup reminders — the journey JSON, and the photos (which are NOT in it)
-    var meta = S.getMeta(), backupDue = !meta.lastExportISO || U.daysBetween(meta.lastExportISO, today()) >= CFG.backup.remindEveryDays;
-    var backupBanner = backupDue ? '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
-      '<div class="row"><div class="grow"><b>Back up your journey</b><div class="tiny muted">500 days of progress lives only on this device. Export a copy.</div></div>' +
-      '<button class="btn sm gold" data-go="settings">Export</button></div></div>' : '';
-    var photoDue = photoCount > 0 && (!meta.lastPhotoExportISO || U.daysBetween(meta.lastPhotoExportISO, today()) >= CFG.backup.remindEveryDays);
-    var photoBanner = photoDue ? '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
-      '<div class="row"><div class="grow"><b>Back up your photos</b><div class="tiny muted">' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' live only in this browser — they are NOT in the main JSON export.</div></div>' +
-      '<button class="btn sm gold" data-go="photos">Export</button></div></div>' : '';
-
-    // streak catch-up nudge: count unlogged days between start and today (single parse, cheap)
-    var allLogs = S.getLogs(), relSet = {};
-    S.getRelapses().forEach(function (r) { relSet[r.date] = true; });
-    var unloggedDays = 0;
-    for (var ui = 0; ui < snap.day; ui++) {
-      var ud = U.addDays(s.startDate, ui), lg = allLogs[ud];
-      if (!relSet[ud] && !(lg && lg.clean != null)) unloggedDays++;
-    }
-    // increment 8 — unread Mentor counsel gets a quiet teaser
-    var mentorBanner = '';
-    try {
-      var mm2 = S.getMentor();
-      if (mm2 && mm2.data && mm2.sha && meta.lastMentorSeenSha !== mm2.sha) {
-        mentorBanner = '<div class="card" style="border-color:rgba(154,107,255,.35);background:rgba(154,107,255,.08)">' +
-          '<div class="row"><div class="grow"><b>🧙 The Mentor has new counsel</b>' +
-          (mm2.data.headline ? '<div class="tiny muted">' + esc(String(mm2.data.headline)) + '</div>' : '') + '</div>' +
-          '<button class="btn sm gold" data-go="mentor">Read</button></div></div>';
-      }
-    } catch (eMB) {}
-    // increment 7 — an overdue milestone deserves a banner, not silence
-    // increment 9 — an overdue CHASE (waiting on a reply) joins the same slot
-    var goalBanner = '';
+    /* ---- Today banners (increment 10): ONE prioritized list, capped ----
+       Every banner joins `banners` in priority order; only CFG.banners.maxShown
+       render as cards and the rest collapse into a single tappable line — five
+       stacked cards used to push the day's plate below the fold. Order:
+       deadline (arrival-gated; the coach's road strip carries the look-ahead),
+       campaign awaiting install, mentor, catch-up, backup, photos. */
+    var meta = S.getMeta(), banners = [];
+    // 1 — overdue milestone / chase due (increments 7+9; copy fixed: the road
+    //     strip + agenda now really do carry the actions)
     try {
       if (window.RTI_GOALS) {
         var od = RTI_GOALS.overdueMilestones(today());
         var cdB = RTI_GOALS.chaseDue(today());
-        if (od.length) goalBanner = '<div class="card" style="border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.07)">' +
+        if (od.length) banners.push({ id: 'goal', html: '<div class="card" style="border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.07)">' +
           '<div class="row"><div class="grow"><b>Overdue milestone</b><div class="tiny muted">“' + esc(od[0].ms.title) + '” (' + esc(od[0].goal.title) + ') passed its date' +
           (od.length > 1 ? ' — and ' + (od.length - 1) + ' more' : '') + '. Re-date it honestly, or fell it.</div></div>' +
-          '<button class="btn sm cyan" data-go="goals">Open</button></div></div>';
-        else if (cdB.length) goalBanner = '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
+          '<button class="btn sm cyan" data-go="goals">Open</button></div></div>' });
+        else if (cdB.length) banners.push({ id: 'goal', html: '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
           '<div class="row"><div class="grow"><b>⏳ A reply is owed a chase</b><div class="tiny muted">“' + esc(cdB[0].ms.title) + '” (' + esc(cdB[0].goal.title) + ')' +
-          (cdB.length > 1 ? ' — and ' + (cdB.length - 1) + ' more' : '') + '. The coach card has the one-tap actions.</div></div>' +
-          '<button class="btn sm gold" data-go="goals">Open</button></div></div>';
+          (cdB.length > 1 ? ' — and ' + (cdB.length - 1) + ' more' : '') + '. One-tap actions are on the coach card below.</div></div>' +
+          '<button class="btn sm gold" data-go="goals">Open</button></div></div>' });
       }
     } catch (eGB) {}
-    var catchupBanner = (unloggedDays >= 2) ?
+    // 2 — a campaign sits in the registry uninstalled (increment 10: this was
+    //     invisible outside The Ascent — the exact hole Operation September
+    //     fell through). Disappears on install; archived counts as installed.
+    try {
+      var regT = S.getTemplates(), allG = window.RTI_GOALS ? RTI_GOALS.list() : [];
+      var waitingT = ((regT && regT.templates) || []).filter(function (t) {
+        return t && t.id && t.title && !allG.some(function (g) { return g.templateId === t.id; });
+      });
+      if (waitingT.length) banners.push({ id: 'tpl', html: '<div class="card" style="border-color:rgba(255,215,130,.45);background:rgba(255,215,130,.07)">' +
+        '<div class="row"><div class="grow"><b>⚔ A campaign awaits</b><div class="tiny muted">“' + esc(waitingT[0].title) + '”' +
+        (waitingT.length > 1 ? ' and ' + (waitingT.length - 1) + ' more' : '') + ' arrived from your private vault — one tap on The Ascent installs the roadmap and its reminders.</div></div>' +
+        '<button class="btn sm gold" data-go="goals">Install</button></div></div>' });
+    } catch (eTB) {}
+    // 3 — unread Mentor counsel (increment 8)
+    try {
+      var mm2 = S.getMentor();
+      if (mm2 && mm2.data && mm2.sha && meta.lastMentorSeenSha !== mm2.sha) {
+        banners.push({ id: 'mentor', html: '<div class="card" style="border-color:rgba(154,107,255,.35);background:rgba(154,107,255,.08)">' +
+          '<div class="row"><div class="grow"><b>🧙 The Mentor has new counsel</b>' +
+          (mm2.data.headline ? '<div class="tiny muted">' + esc(String(mm2.data.headline)) + '</div>' : '') + '</div>' +
+          '<button class="btn sm gold" data-go="mentor">Read</button></div></div>' });
+      }
+    } catch (eMB) {}
+    // 4 — streak catch-up (snoozeable now: the nag quiets, no day is marked;
+    //     today itself is excluded — it isn't an "earlier" day)
+    var allLogs = S.getLogs(), relSet = {};
+    S.getRelapses().forEach(function (r) { relSet[r.date] = true; });
+    var unloggedDays = 0;
+    for (var ui = 0; ui < snap.day - 1; ui++) {
+      var ud = U.addDays(s.startDate, ui), lg = allLogs[ud];
+      if (!relSet[ud] && !(lg && lg.clean != null)) unloggedDays++;
+    }
+    var cuSnoozed = meta.catchupSnoozeISO &&
+      U.daysBetween(meta.catchupSnoozeISO, today()) < ((CFG.banners && CFG.banners.catchupSnoozeDays) || 7);
+    if (unloggedDays >= 2 && !cuSnoozed) banners.push({ id: 'catchup', html:
       '<div class="card" style="border-color:rgba(98,216,255,.35);background:rgba(98,216,255,.07)">' +
         '<div class="row"><div class="grow"><b>Catch up your streak</b><div class="tiny muted">You’re on Day ' + snap.day + ' with a ' + snap.streak.current + '-day streak. ' + unloggedDays + ' earlier day' + (unloggedDays === 1 ? '' : 's') + ' aren’t logged — if you held clean then, record them so Immortal Power &amp; your stage reflect it.</div></div>' +
-        '<button class="btn sm cyan" data-go="settings">Catch up</button></div></div>' : '';
+        '<div><button class="btn sm cyan" data-go="settings">Catch up</button><button class="btn sm ghost" data-bn="catchup-later" style="margin-top:6px">Later</button></div></div></div>' });
+    // 5 — file backup nag, QUIET while cloud sync is verifiably fresh (the
+    //     ledger is already off the phone; a stale/broken sync re-arms it)
+    var cloudFresh = false;
+    try {
+      var syB = S.getSync();
+      cloudFresh = window.RTI_SYNC && RTI_SYNC.configured(syB) && syB.lastStatus === 'ok' &&
+        syB.lastSyncISO && U.daysBetween(syB.lastSyncISO.slice(0, 10), today()) < CFG.backup.remindEveryDays;
+    } catch (eCF) {}
+    var backupDue = !cloudFresh && (!meta.lastExportISO || U.daysBetween(meta.lastExportISO, today()) >= CFG.backup.remindEveryDays);
+    if (backupDue) banners.push({ id: 'backup', html: '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
+      '<div class="row"><div class="grow"><b>Back up your journey</b><div class="tiny muted">500 days of progress lives only on this device. Export a copy.</div></div>' +
+      '<button class="btn sm gold" data-go="settings">Export</button></div></div>' });
+    // 6 — photo backup (photos are NOT in the main export OR the auto-sync)
+    var photoDue = photoCount > 0 && (!meta.lastPhotoExportISO || U.daysBetween(meta.lastPhotoExportISO, today()) >= CFG.backup.remindEveryDays);
+    if (photoDue) banners.push({ id: 'photo', html: '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
+      '<div class="row"><div class="grow"><b>Back up your photos</b><div class="tiny muted">' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' live only in this browser — they are NOT in the main JSON export.</div></div>' +
+      '<button class="btn sm gold" data-go="photos">Export</button></div></div>' });
+
+    var maxB = (CFG.banners && CFG.banners.maxShown) || 2;
+    var shownB = state._bannersExpand ? banners : banners.slice(0, maxB);
+    var bannersHtml = shownB.map(function (b) { return b.html; }).join('');
+    if (banners.length > shownB.length) {
+      bannersHtml += '<button class="btn ghost full sm" data-bn="expand" style="margin-bottom:10px">· ' +
+        (banners.length - shownB.length) + ' more waiting — show</button>';
+    } else if (state._bannersExpand && banners.length > maxB) {
+      bannersHtml += '<button class="btn ghost full sm" data-bn="collapse" style="margin-bottom:10px">Show fewer</button>';
+    }
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner + photoBanner + mentorBanner + goalBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
+      header('today') + bannersHtml + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -658,7 +763,7 @@
         '<div class="tiny faint">Immortal Index — how charged you are today</div>' +
       '</div>' +
       '<div class="card">' + metersBlock(m) + '</div>' +
-      '<div class="card"><h3>Today’s targets</h3>' + checklist + '</div>' +
+      '<div class="card" id="targets-card"><h3>Today’s targets</h3>' + checklist + '</div>' +
       '<div class="card"><h3>Quick log</h3><div class="quick">' +
         quickBtn('clean', log.clean === true ? '🛡' : (log.clean === false ? '⚠' : '◻'), log.clean === true ? 'Held' : (log.clean === false ? 'Slip' : 'Clean?')) +
         quickBtn('breath', '🫁', 'Breath +5') +
@@ -668,15 +773,32 @@
         quickBtn('fulllog', '📝', 'Full log') +
       '</div></div>' +
       '<div class="card"><div class="codex-quote" style="font-size:17px">' + esc(fill(dailyPick(CFG.quotes.daily), snap)) + '</div></div>' +
-      '<div class="btn-grid"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
+      // increment 10 — The Ascent leads the wall (it carries real-world
+      // deadlines), and buttons with something waiting wear a gold dot
+      '<button class="btn ghost full" data-go="goals">🎯 The Ascent — ambitions · roadmap · daily tasks' + navDot(navGoalsPending()) + '</button>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="study">🔬 Study</button><button class="btn ghost" data-go="road">🏯 The Road</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
-      '<button class="btn ghost full" data-go="goals" style="margin-top:10px">🎯 The Ascent — ambitions · roadmap · daily tasks</button>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
-      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="sanctum">🕉 Sanctum</button><button class="btn ghost" data-go="mentor">🧙 The Mentor</button></div>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="sanctum">🕉 Sanctum</button><button class="btn ghost" data-go="mentor">🧙 The Mentor' + navDot(navMentorUnread()) + '</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach(); wireTrial();
+
+    // banner controls (increment 10): expander + catch-up snooze. The snooze
+    // writes ONLY meta.catchupSnoozeISO — no day is ever auto-marked.
+    appEl.querySelectorAll('[data-bn]').forEach(function (el) {
+      el.onclick = function () {
+        var a = el.getAttribute('data-bn');
+        if (a === 'expand') { state._bannersExpand = true; render(); return; }
+        if (a === 'collapse') { state._bannersExpand = false; render(); return; }
+        if (a === 'catchup-later') {
+          S.setMeta({ catchupSnoozeISO: today() });
+          toast('Quieted for ' + ((CFG.banners && CFG.banners.catchupSnoozeDays) || 7) + ' days — Settings › Catch up is always there.');
+          render(); return;
+        }
+      };
+    });
 
     // wire
     appEl.querySelectorAll('[data-target]').forEach(function (el) {
@@ -688,6 +810,9 @@
         // targetsTotal freezes "how many targets existed today", so editing
         // the list later can never retro-corrupt this day's all-done check
         S.patchLog(today(), { todayTargetsDone: d, targetsTotal: targets.length }); render();
+      };
+      el.onkeydown = function (e) { // role=button needs the keys to work too
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.onclick(); }
       };
     });
     appEl.querySelectorAll('[data-q]').forEach(function (el) {
@@ -1674,6 +1799,29 @@
     try { ctx.moon = SAN ? SAN.moonPhase(asOf) : null; } catch (e) {}
     try { if (SAN && s.latitude != null && s.longitude != null) ctx.sun = SAN.sunTimes(asOf, s.latitude, s.longitude); } catch (e) {}
     try { if (SAN && s.latitude != null && s.longitude != null) ctx.brahma = SAN.brahmaMuhurta(asOf, s.latitude, s.longitude); } catch (e) {}
+    // increment 10 — the Ascent's road, so "what should I chase this week"
+    // answers from the roadmap instead of the generic weekly recap
+    try {
+      if (window.RTI_GOALS) {
+        var G10 = RTI_GOALS, act10 = G10.active();
+        var look = (CFG.goals && CFG.goals.lookaheadDays) || 7;
+        var road = G10.roadAhead(asOf, look);
+        var gr = null;
+        for (var gi10 = 0; gi10 < act10.length && !gr; gi10++) if (act10[gi10].guardrail) gr = act10[gi10].guardrail;
+        ctx.goals = {
+          hasGoals: act10.length > 0,
+          overdue: road.filter(function (r) { return r.kind === 'overdue'; }).map(function (r) { return { title: r.ms.title }; }),
+          chase: road.filter(function (r) { return r.kind === 'chase' && r.inDays === 0; }).map(function (r) { return { title: r.ms.title }; }),
+          dueToday: road.filter(function (r) { return r.kind === 'due' && r.inDays === 0; }).map(function (r) { return { title: r.ms.title }; }),
+          upcoming: road.filter(function (r) { return r.inDays > 0; }).map(function (r) {
+            return { title: r.ms.title, kind: r.kind, inDays: r.inDays,
+                     iso: r.kind === 'chase' ? r.ms.chaseISO : r.ms.targetISO };
+          }),
+          tasksDue: G10.dueTasks(asOf).length,
+          guardrail: gr
+        };
+      }
+    } catch (eGx) {}
     return ctx;
   }
 
@@ -2050,7 +2198,7 @@
     if (act === 'urge') { openUrge(); return; }
   }
   // suggestion chips — each sends its text through the normal flow
-  var ORACLE_CHIPS = ['Status', 'Risk tonight', 'What’s left to eat', 'Next shift', 'Prophecy', 'Wisdom'];
+  var ORACLE_CHIPS = ['Status', 'Risk tonight', 'The road ahead', 'What’s left to eat', 'Next shift', 'Prophecy', 'Wisdom'];
   function oracleConverseHtml() {
     var msgs = oracleMsgs();
     var thread = msgs.map(function (m, mi) {
@@ -2490,11 +2638,14 @@
       return;
     }
     // opening The Ascent quietly refreshes the private registry once per
-    // session, re-rendering if new campaigns arrived while we're still here
+    // session, re-rendering if new campaigns arrived while we're still here.
+    // The once-flag is set ONLY on success (increment 10): one offline visit
+    // used to burn the attempt for the whole session.
     try {
       if (window.RTI_SYNC && !state._tplPulled) {
-        state._tplPulled = true;
-        RTI_SYNC.pullTemplates(function (err, obj) { if (obj && state.tab === 'goals') render(); });
+        RTI_SYNC.pullTemplates(function (err, obj) {
+          if (obj) { state._tplPulled = true; if (state.tab === 'goals') render(); }
+        });
       }
     } catch (eTp) {}
     var goals = RTI_GOALS.list().filter(function (g) { return !g.archived; });
@@ -2674,7 +2825,14 @@
   // pulled by sync.js). Every field is optional — render what exists.
   function mentorList(title, items, cls) {
     if (!items || !items.length) return '';
-    var rows = items.map(function (x) { return '<div class="flag ' + cls + '" style="margin:6px 0">' + esc(String(x)) + '</div>'; }).join('');
+    var rows = items.map(function (x) {
+      var s = String(x);
+      // counsel naming a specific day gets a jump ("Fix the Log for 2026-07-05"
+      // used to be a dead end — increment 10)
+      var dm = /\b(\d{4}-\d{2}-\d{2})\b/.exec(s);
+      var jump = dm ? '<button class="btn ghost sm" data-mjump="' + esc(dm[1]) + '" style="margin-top:6px;display:block">Open that day in the Log →</button>' : '';
+      return '<div class="flag ' + cls + '" style="margin:6px 0">' + esc(s) + jump + '</div>';
+    }).join('');
     return '<h3 style="margin-top:12px">' + esc(title) + '</h3>' + rows;
   }
   function screenMentor() {
@@ -2706,6 +2864,14 @@
       '</div>';
     }
     appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Mentor') + body + '</div>'));
+    // deep-jump: open the exact day a counsel line names (increment 10). The
+    // date survives render() because viewDate is preserved while tab==='log'.
+    appEl.querySelectorAll('[data-mjump]').forEach(function (b) {
+      b.onclick = function () {
+        state.tab = 'log'; state.viewDate = b.getAttribute('data-mjump');
+        window.scrollTo(0, 0); render();
+      };
+    });
     // mark this counsel as seen (clears the Today teaser)
     try { if (m && m.sha) S.setMeta({ lastMentorSeenSha: m.sha }); } catch (e) {}
   }
@@ -2765,9 +2931,17 @@
       if (!window.RTI_SYNC) return;
       if (!RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
       toast('Syncing…'); RTI_SYNC.pushBackup(syncDone('Synced'));
-      // a manual sync also pulls counsel + the private template registry, so
-      // a fresh connect surfaces everything without waiting for the next tick
-      try { RTI_SYNC.pullMentor(null); RTI_SYNC.pullTemplates(null); } catch (eP) {}
+      // a manual sync also pulls counsel + the private template registry, and
+      // SAYS what arrived (a silent success on first connect hid the campaign)
+      try {
+        RTI_SYNC.pullMentor(function (errM, objM) {
+          if (objM) toast('🧙 Mentor counsel pulled.');
+        });
+        RTI_SYNC.pullTemplates(function (errT, objT) {
+          if (objT && objT.templates && objT.templates.length)
+            toast('⚔ Campaign registry pulled — ' + objT.templates.length + ' template' + (objT.templates.length === 1 ? '' : 's') + ' available on The Ascent.', 4500);
+        });
+      } catch (eP) {}
     };
     function doRestore() {
       if (!window.RTI_SYNC || !RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
@@ -2830,8 +3004,9 @@
         '<input type="file" id="file-import" accept="application/json,.json" style="display:none">' +
       '</div>' +
       '<div class="card"><h3>Relapse</h3><button class="btn full" style="border-color:rgba(255,107,138,.4);color:#ffc2cf" data-go="relapse">Log a relapse (with compassion)</button></div>' +
-      '<div class="card"><h3>App</h3><div class="tiny muted">Service worker: ' + swState + '</div>' +
+      '<div class="card"><h3>App</h3><div class="tiny muted">Version: <b>' + esc(CFG.appVersion || 'unknown') + '</b> · Service worker: ' + swState + '</div>' +
         '<div class="tiny faint" style="margin-top:6px">All data lives on this device. No accounts, no analytics. The ONLY network call is the optional cloud sync above (api.github.com) — and only if you connect it.</div>' +
+        '<button class="btn ghost sm" id="do-swcheck" style="margin-top:10px">⟳ Check for updates</button>' +
         '<button class="btn ghost sm" id="do-wipe" style="margin-top:10px;color:#ff8aa8">Erase all data on this device</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
@@ -2869,6 +3044,17 @@
       if (window.RTI_AURORA) { window.RTI_AURORA.stop(); window.RTI_AURORA.start(); } // re-evaluate bg motion
       render();
     };
+    // increment 10 — force an update check past the throttle; the honest
+    // answer is either the tappable update bar or "you're current"
+    appEl.querySelector('#do-swcheck').onclick = function () {
+      if (!swReg) { toast('The service worker is still registering — try again in a moment.'); return; }
+      toast('Checking for a new version…');
+      swCheckForUpdate(true);
+      setTimeout(function () {
+        if (!document.getElementById('rti-update-bar'))
+          toast('You are on the latest this device can see (' + (CFG.appVersion || '?') + ').', 4000);
+      }, 3500);
+    };
     appEl.querySelector('#do-export').onclick = doExport;
     appEl.querySelector('#do-import').onclick = function () { appEl.querySelector('#file-import').click(); };
     appEl.querySelector('#file-import').onchange = doImport;
@@ -2900,9 +3086,13 @@
   /* ---- shared header ---- */
   function header(title) {
     var s = S.getSettings();
-    var sub = title === 'today' ? (s.displayName ? 'Walk on, ' + esc(s.displayName) : 'Monk Mode') : esc(title);
+    var isToday = title === 'today';
+    var sub = isToday ? (s.displayName ? 'Walk on, ' + esc(s.displayName) : 'Monk Mode') : esc(title);
+    // sub-screens get a real back affordance (increment 10) — "the Today tab
+    // means back" was the only way home and nothing said so
     return '<header class="app-head"><div class="brand">' +
-      '<img class="sigil" src="./icons/icon-192.png" alt="">' +
+      (isToday ? '<img class="sigil" src="./icons/icon-192.png" alt="">'
+               : '<button class="icon-btn" data-go="today" aria-label="Back to Today" style="font-size:22px">‹</button>') +
       '<div><h1>Road to Immortal</h1><small>' + sub + '</small></div></div>' +
       '<button class="icon-btn" data-go="settings" aria-label="Settings">⚙</button></header>';
   }
@@ -2918,7 +3108,10 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum' || state.tab === 'goals' || state.tab === 'mentor'));
+      // any screen that is not itself a tab lights the Today tab — the old
+      // hand-maintained list silently forgot 'study' (increment 10)
+      var isTabScreen = TABS.some(function (x) { return x.id === state.tab; });
+      var on = state.tab === t.id || (t.id === 'today' && !isTabScreen);
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });
@@ -2937,9 +3130,20 @@
       var hm = appEl.querySelector('#err-home'); if (hm) hm.onclick = function () { state.tab = 'today'; render(); };
     } catch (e2) {}
   }
+  var lastRenderedTab = null;
   function render() {
     try {
       if (state.tab !== 'log' && state.tab !== 'nutrition' && state.tab !== 'study') state.viewDate = today();
+      // increment 10 — screen persistence + Android back support. One history
+      // entry backs every sub-screen, so the system back gesture returns to
+      // Today instead of quitting the PWA; sessionStorage survives a reload.
+      if (state.tab !== lastRenderedTab) {
+        lastRenderedTab = state.tab;
+        try { sessionStorage.setItem('rti_screen', state.tab); } catch (eSS) {}
+        try {
+          if (state.tab !== 'today' && !(history.state && history.state.rti)) history.pushState({ rti: 1 }, '');
+        } catch (eHS) {}
+      }
       (SCREENS[state.tab] || screenToday)();
       renderTabs();
       // global data-go links + relapse
@@ -2960,10 +3164,43 @@
     setTimeout(function () { state.viewDate = today(); render(); scheduleMidnight(); }, next - now);
   }
 
-  /* =================== SERVICE WORKER =================== */
+  /* =================== SERVICE WORKER (increment 10: The Herald) ===================
+     sw.js calls skipWaiting()+clients.claim(), so a new version activates during
+     the CURRENT session — but this page keeps running the code it loaded with.
+     Before increment 10 nothing listened and nothing checked: a phone living in
+     Android recents could run stale code for weeks (Increment 9 never became
+     visible — the original "my reminders are missing" bug). Now:
+     - controllerchange → a persistent, tappable "update ready" bar. NEVER an
+       auto-reload: a half-entered log must survive the moment an update lands.
+     - a throttled registration.update() on every foreground + a manual button
+       in Settings, so deploys reach the phone without a cold start. */
+  var swReg = null, swLastCheck = 0;
+  function showUpdateBar() {
+    if (document.getElementById('rti-update-bar')) return;
+    var bar = h('<button id="rti-update-bar" style="position:fixed;left:12px;right:12px;bottom:76px;z-index:999;padding:12px 14px;border-radius:14px;border:1px solid rgba(122,255,178,.5);background:rgba(16,34,26,.96);color:#baffd6;font:inherit;text-align:left">⟳ The app has updated — tap to load the new version</button>');
+    bar.onclick = function () { location.reload(); };
+    document.body.appendChild(bar);
+  }
+  function swCheckForUpdate(force) {
+    if (!swReg) return;
+    var n = Date.now(), min = (CFG.sw && CFG.sw.checkMinMs) || 3600000;
+    if (!force && n - swLastCheck < min) return;
+    swLastCheck = n;
+    // .catch, not try/catch: update() REJECTS (async) when offline
+    try { swReg.update().catch(function () {}); } catch (eU) {}
+  }
   if ('serviceWorker' in navigator) {
+    // listener installed at evaluation time — the registration's first update
+    // check can race the load event. clients.claim() also fires this on the
+    // very first install, which is not an update: the hadController guard.
+    var swHadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!swHadController) { swHadController = true; return; }
+      showUpdateBar();
+    });
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('./sw.js').then(function (reg) {
+        swReg = reg;
         console.log('[RTI] service worker registered:', reg.scope);
       }).catch(function (err) { console.warn('[RTI] SW registration failed:', err); });
     });
@@ -2991,10 +3228,36 @@
     if (window.RTI_SYNC) {
       setTimeout(function () { RTI_SYNC.maybeAutoSync('boot'); }, 2000);
       window.addEventListener('online', function () { RTI_SYNC.maybeAutoSync('online'); });
-      document.addEventListener('visibilitychange', function () { if (document.hidden) RTI_SYNC.maybeAutoSync('hide'); });
       setInterval(function () { RTI_SYNC.maybeAutoSync('tick'); }, 5 * 60 * 1000);
+      // increment 10 — when a pull actually lands fresh counsel or a fresh
+      // campaign, redraw the screens that announce them (same session, not
+      // "next time you happen to navigate")
+      RTI_SYNC.onPulled = function () {
+        if (state.tab === 'today' || state.tab === 'goals' || state.tab === 'mentor') render();
+      };
     }
   } catch (e) {}
+  // increment 10 — the foreground moment is when the owner actually looks:
+  // backgrounding pushes the ledger; foregrounding checks for new code, pulls
+  // fresh counsel/campaigns, and redraws Today for the hour it now is.
+  document.addEventListener('visibilitychange', function () {
+    try {
+      if (document.hidden) { if (window.RTI_SYNC) RTI_SYNC.maybeAutoSync('hide'); return; }
+      swCheckForUpdate(false);
+      if (window.RTI_SYNC) RTI_SYNC.maybeAutoSync('resume');
+      if (state.tab === 'today') render();
+    } catch (eVis) {}
+  });
+  // increment 10 — Android back gesture returns to Today instead of quitting
+  // (render() pushed one history entry per sub-screen visit)
+  window.addEventListener('popstate', function () {
+    if (state.tab !== 'today') { state.tab = 'today'; window.scrollTo(0, 0); render(); }
+  });
+  // increment 10 — a reload (or process restart) reopens the screen in use
+  try {
+    var savedTab = sessionStorage.getItem('rti_screen');
+    if (savedTab && SCREENS[savedTab]) state.tab = savedTab;
+  } catch (eRS) {}
   render();
   scheduleMidnight();
   window.RTI = { render: render, state: state, engine: E, store: S };

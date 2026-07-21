@@ -65,6 +65,9 @@
                               // ORTHOGONAL to doneISO — an action can be done
                               // while its reply is still awaited (increment 9).
                               chaseISO: fields.chaseISO || null,
+                              // true only for template history imported already
+                              // done (increment 10) — excluded from the ETA rate
+                              preDone: !!fields.preDone,
                               note: fields.note ? String(fields.note) : null });
       break;
     }
@@ -203,11 +206,19 @@
     // combined: the roadmap leads (70%), the daily grind keeps it honest (30%)
     var combined = msPct == null ? (adh == null ? 0 : adh)
                  : (adh == null ? msPct : Math.round(0.7 * msPct + 0.3 * adh));
-    // ETA only once at least one milestone has actually fallen — no fantasy dates
-    var eta = null;
-    if (msDone > 0 && msDone < msTotal) {
+    // ETA only once at least one milestone has actually fallen — no fantasy
+    // dates. "Fallen" means LIVED here: a template's pre-done history arrives
+    // stamped preDone (see installTemplate) and carries no pace information —
+    // two imported ticks over a one-day-old goal once projected "all nine by
+    // Friday" (increment 10 fix). Pre-done milestones still count toward
+    // msPct/remaining; they just cannot set the pace.
+    var eta = null, msLived = 0;
+    for (var li = 0; li < msTotal; li++) {
+      if (ms[li].doneISO && !ms[li].preDone) msLived++;
+    }
+    if (msLived > 0 && msDone < msTotal) {
       var elapsed = Math.max(1, U.daysBetween(goal.createdISO || asOf, asOf));
-      var rate = msDone / elapsed;                    // milestones per day, lived
+      var rate = msLived / elapsed;                   // milestones per day, lived
       var days = Math.ceil((msTotal - msDone) / rate);
       if (days > 3650) days = 3650;
       eta = { days: days, iso: U.addDays(asOf, days) };
@@ -279,7 +290,10 @@
     for (var j = 0; j < ms.length; j++) {
       addMilestone(g.id, { title: ms[j].title, targetISO: ms[j].targetISO || null,
                            doneISO: ms[j].doneISO || null, chaseISO: ms[j].chaseISO || null,
-                           note: ms[j].note || null });
+                           note: ms[j].note || null,
+                           // imported-as-done ≠ lived: pre-done history must
+                           // never feed the ETA rate (see progress)
+                           preDone: !!ms[j].doneISO });
     }
     var ts = tpl.tasks || [];
     for (var k = 0; k < ts.length; k++) {
@@ -290,6 +304,32 @@
     patchGoal(g.id, { templateId: tpl.id, templateVersion: tpl.version || 1,
                       guardrail: tpl.guardrail || null, note: tpl.note || null });
     return { ok: true, goal: byId(g.id) };
+  }
+  /* ---------- the road ahead (increment 10) ----------
+     ONE merged, date-sorted view of everything deadline-shaped within the
+     window: overdue milestones (negative inDays), chases already due (inDays
+     0), chases coming up, and undone due dates coming up. Pure read — the UI
+     renders these as NAVIGATION to The Ascent, never as one-tap "Done"s
+     (an overdue item must never invite a dishonest tap). */
+  function roadAhead(asOf, withinDays) {
+    var out = [], gs = active();
+    for (var i = 0; i < gs.length; i++) {
+      for (var j = 0; j < gs[i].milestones.length; j++) {
+        var m = gs[i].milestones[j], d;
+        if (m.targetISO && !m.doneISO) {
+          d = U.daysBetween(asOf, m.targetISO);
+          if (d < 0) out.push({ kind: 'overdue', goal: gs[i], ms: m, inDays: d });
+          else if (d <= withinDays) out.push({ kind: 'due', goal: gs[i], ms: m, inDays: d });
+        }
+        if (m.chaseISO) { // waiting is orthogonal to done — chase rides regardless
+          d = U.daysBetween(asOf, m.chaseISO);
+          if (d <= 0) out.push({ kind: 'chase', goal: gs[i], ms: m, inDays: 0 });
+          else if (d <= withinDays) out.push({ kind: 'chase', goal: gs[i], ms: m, inDays: d });
+        }
+      }
+    }
+    out.sort(function (a, b) { return a.inDays - b.inDays; });
+    return out;
   }
   function upcomingMilestones(asOf, withinDays) {
     var out = [], gs = active();
@@ -310,7 +350,8 @@
     addGoal: addGoal, patchGoal: patchGoal, removeGoal: removeGoal,
     addMilestone: addMilestone, toggleMilestone: toggleMilestone, removeMilestone: removeMilestone,
     patchMilestone: patchMilestone, bumpChase: bumpChase, clearChase: clearChase,
-    chaseDue: chaseDue, dueMilestones: dueMilestones, installTemplate: installTemplate,
+    chaseDue: chaseDue, dueMilestones: dueMilestones, roadAhead: roadAhead,
+    installTemplate: installTemplate,
     addTask: addTask, toggleTask: toggleTask, removeTask: removeTask,
     expectedPerWeek: expectedPerWeek, cadenceLabel: cadenceLabel,
     doneOn: doneOn, doneCountInWindow: doneCountInWindow,

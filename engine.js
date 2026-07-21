@@ -446,21 +446,24 @@
         // instead ("re-date it honestly, or fell it") — its only one-tap here
         // would be [Done], and an unfinishable item must never squat in the
         // completion ring training dishonest taps.
-        var msCap = (CFG.goals && CFG.goals.msAgendaCap) || 2, msShown = 0;
+        // chases and due-day items each get their OWN msAgendaCap budget
+        // (increment 10): two live chases must never crowd a milestone off
+        // the agenda on its only eligible day.
+        var msCap = (CFG.goals && CFG.goals.msAgendaCap) || 2, chShown = 0, duShown = 0;
         var chases = G.chaseDue(asOf);
-        for (var ci = 0; ci < chases.length && msShown < msCap; ci++, msShown++) {
+        for (var ci = 0; ci < chases.length && chShown < msCap; ci++, chShown++) {
           push('goalchase-' + chases[ci].ms.id, 'goalchase', 'Chase: ' + chases[ci].ms.title,
                false, { timely: true, mealKey: chases[ci].goal.id + ':' + chases[ci].ms.id });
         }
-        for (var di = 0; di < gls.length && msShown < msCap; di++) {
+        for (var di = 0; di < gls.length && duShown < msCap; di++) {
           var dms = gls[di].milestones || [];
-          for (var mi = 0; mi < dms.length && msShown < msCap; mi++) {
+          for (var mi = 0; mi < dms.length && duShown < msCap; mi++) {
             var dm = dms[mi];
             if (dm.targetISO !== asOf) continue;               // only the due day itself
             if (dm.doneISO && dm.doneISO !== asOf) continue;   // finished earlier: nothing to ask
             push('goalms-' + dm.id, 'goalms', 'Due: ' + dm.title, !!dm.doneISO,
                  { timely: true, mealKey: gls[di].id + ':' + dm.id });
-            msShown++;
+            duShown++;
           }
         }
       }
@@ -468,7 +471,10 @@
 
     var total = items.length, done = items.filter(function (it) { return it.done; }).length;
     var pending = items.filter(function (it) { return !it.done && !it.blocked; });
-    var prio = { clean: 0, daytype: 1, plan: 2, meal: 3, goalchase: 3.4, goalms: 3.5, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    // Deadline items (chase / due-today) rank straight after the clean question
+    // (increment 10: 0.4/0.5, was 3.4/3.5) — a real-world deadline must outrank
+    // "log lunch" even when lunch is the timely thing.
+    var prio = { clean: 0, goalchase: 0.4, goalms: 0.5, daytype: 1, plan: 2, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
     pending.sort(function (a, b) {
       var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
       if (at !== bt) return at - bt;
@@ -478,6 +484,9 @@
       phase: pid, greet: phase.greet, line: phase.line, curMeal: curMeal,
       items: items, doneCount: done, totalCount: total,
       completionPct: total ? Math.round(done / total * 100) : 0,
+      // the UI renders `pending` AS ORDERED here — the coach card must never
+      // re-derive its own order from items[] (that bug buried the campaign)
+      pending: pending,
       primary: pending[0] || null, pendingCount: pending.length
     };
   }

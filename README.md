@@ -539,6 +539,77 @@ incl. ring flip-up and morning-after clearing, msAgendaCap, bump/clear actions,
 registry never in the export, legacy-shape compatibility) —
 `node tools/selftest.js` → **296 passed, 0 failed**.
 
+## Increment 10 — The Herald (updates announce themselves · the road becomes visible)
+
+Born from a live failure: Increment 9's campaign never became visible on the phone.
+The cloud ledger showed `goals: []` — the phone was still running old code (no update
+prompt exists in a cache-first PWA), the registry pull required a manual visit to The
+Ascent, and even installed, the campaign's tasks were sliced off the coach card while
+its dates were days away (due/chase items only surface on arrival). A 46-agent audit
+confirmed 37 findings; this increment fixes the visibility chain end to end. SW → **v18**.
+
+- **Updates announce themselves** (the root cause): `sw.js` already skip-waits, so a
+  new version activates mid-session — now `app.js` listens for `controllerchange` and
+  shows a persistent **"⟳ The app has updated — tap to load the new version"** bar
+  (never an auto-reload: a half-entered log must survive). A **throttled
+  `registration.update()`** runs on every app foregrounding (`config.sw.checkMinMs`),
+  so deploys reach a phone that lives in Android recents and never cold-starts.
+  Settings › App now shows the **version** (`config.appVersion`, moves with the SW
+  cache name) and a **⟳ Check for updates** button with an honest "you're current" answer.
+- **The coach card renders the engine's order**: `dailyAgenda` now returns its
+  priority-sorted `pending` list and the card renders it verbatim — the old card
+  re-sorted `items[]` by insertion order, which buried Chase:/Due:/ambition tasks
+  below six meal rows (the second root cause). Deadline kinds now outrank timely
+  hygiene (a due milestone beats "log lunch"), chases and due-day items hold
+  **separate `msAgendaCap` budgets**, the row cap lives in `config.goals.coachListCap`,
+  and everything past it collapses into a tappable **"+N more on today's plate"** —
+  nothing is ever cut silently again.
+- **🗺 The road this week**: the coach card grows a look-ahead strip —
+  every overdue / chase / due item within `config.goals.lookaheadDays`, nearest first,
+  as real tappable rows into The Ascent (`RTI_GOALS.roadAhead`, pure + tested).
+  Deliberately **navigation-only**: a future or overdue item never offers a one-tap
+  Done. This replaces the single non-tappable "due in N days" line.
+- **Banners stand in line**: Today's five banner types now join one prioritized list
+  (overdue/chase → campaign-awaiting-install → mentor → catch-up → backup → photos)
+  capped at `config.banners.maxShown` with a "N more waiting" expander. A **campaign
+  banner** announces an uninstalled template the moment the registry lands (the exact
+  hole Operation September fell through). The backup nag quiets while cloud sync is
+  verifiably fresh; the catch-up nag gains an honest **Later** snooze
+  (`meta.catchupSnoozeISO` — quiets the banner only, marks nothing) and stops
+  counting today as an "earlier day".
+- **Honest pace, tightened**: template milestones imported already-done are stamped
+  `preDone` and can never set the ETA rate — 2 imported ticks over a one-day-old goal
+  once projected "all nine by Friday". Progress % still counts them; the ETA opens
+  only when a milestone **falls lived** (hand-made goals keep the increment-7 rule).
+- **Pulls always run**: `maybeAutoSync` no longer gates the read-only mentor/template
+  pulls behind push conditions (auto-off / foreign-copy stand-off silenced campaign
+  delivery); a landed pull re-renders the announcing screen via `RTI_SYNC.onPulled`.
+  The Ascent's once-per-session registry pull retries after failure instead of
+  burning its flag; manual **Sync now** reports what arrived.
+- **The Oracle learns the road**: a new `ascent` intent ("what should I chase this
+  week", "whats due", "the road ahead" — its own chip) answers from `roadAhead` +
+  due tasks + the guardrail, with an Open-The-Ascent action. Weekly prophecy keeps
+  its own lane.
+- **Navigation smoothed**: sub-screen headers gain a **‹ back** affordance; the
+  Android **system back gesture returns to Today** instead of quitting the PWA (one
+  history entry per sub-screen); the current screen survives a reload
+  (`sessionStorage`); the Today tab highlights on *any* non-tab screen (Study was
+  forgotten); The Ascent leads the button wall and Ascent/Mentor buttons wear a gold
+  **●** when something waits; foregrounding the app re-draws Today for the hour it
+  now is. The Mentor's counsel deep-jumps to any Log day it names; the coach's
+  "targets" row scrolls *to* the targets card (not past it) and target rows are
+  keyboard/screen-reader reachable.
+
+19 new self-test assertions (preDone stamp + silent ETA + lived-rate opening +
+hand-goal compatibility, roadAhead merge/sort/overdue/window, sorted-pending
+contract, chase-vs-due budgets, ascent intent routing + grounded/empty responses,
+herald tunables) — `node tools/selftest.js` → **315 passed, 0 failed**.
+
+**Deploy note (one last manual update):** this fix itself ships through the old
+pipeline, so the phone needs one final ritual: open the app online, wait ~10 s,
+fully close it (swipe away from recents), reopen. From v18 on, updates announce
+themselves with the tap-to-reload bar.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

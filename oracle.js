@@ -186,6 +186,16 @@
         [/shift today/, 4], [/working today/, 4], [/todays shift/, 4],
         [/\brota\b/, 3], [/\bschedule\b/, 3], [/am i working/, 3], [/\bshift\b/, 1]
       ] },
+    // increment 10 — the Ascent's road: chases, due dates, ambitions. Sits
+    // BEFORE prophecy so "whats due this week" resolves to the road, not the
+    // weekly recap (array order breaks ties).
+    { id: 'ascent', rules: [
+        [/\bchas(e|ing|ed)\b/, 4], [/\bmilestone/, 4], [/\bambition/, 4],
+        [/\bascent\b/, 4], [/\bcampaign\b/, 4], [/\broadmap\b/, 4],
+        [/\bdeadline/, 4], [/\bdue\b/, 3], [/\bgoals?\b/, 3],
+        [/\boverdue\b/, 4], [/what should i (do|push|chase)/, 2],
+        [/the road (ahead|this week)/, 4], [/what.?s (coming|ahead|next on the road)/, 3]
+      ] },
     { id: 'prophecy', rules: [
         [/\bprophecy\b/, 4], [/report of the week/, 4], [/week forecast/, 4],
         [/forecast (for )?(the )?week/, 4], [/this week/, 3], [/\bweekly\b/, 3],
@@ -669,6 +679,7 @@
       '· "status" · "streak" · "risk tonight" · "weekly prophecy"\n' +
       '· "what’s left to eat" — remaining kcal and protein\n' +
       '· "rota today" · "next shift" · "next night"\n' +
+      '· "the road ahead" — chases, due dates and the week’s milestones\n' +
       '· "when do I reach the next rank" · "power" · "moon" · "wisdom"\n' +
       'I can also take dictation for the record — "12,000 steps", "meditated 20 minutes", ' +
       '"slept 7 hours", "mood 4", "mark today clean" — you confirm, then it is written. ' +
@@ -676,6 +687,55 @@
     return { text: text,
              say: 'Ask about your streak, risk, food or rota — or give me numbers to log.',
              actions: [], goto: null };
+  }
+
+  /* ---- the Ascent: chases, due dates, the week's road (increment 10) ----
+     Grounded in ctx.goals (built by the app from RTI_GOALS). Navigation only —
+     the Oracle never offers a one-tap Done on a milestone; deadlines are
+     answered in The Ascent where the honest controls live. */
+  function rAscent(ctx) {
+    var g = ctx.goals;
+    if (!g || !g.hasGoals) {
+      return { text: 'The Ascent stands empty — no ambition is planted yet. Plant one (or install a waiting campaign) and I will watch its road with you.',
+               say: 'No ambitions planted yet.',
+               actions: [gotoAction('Open The Ascent', 'goals')], goto: null };
+    }
+    var parts = [], said = null, i;
+    if (g.overdue && g.overdue.length) {
+      parts.push('“' + g.overdue[0].title + '” passed its date' +
+        (g.overdue.length > 1 ? ' — and ' + (g.overdue.length - 1) + ' more with it' : '') +
+        '. Re-date it honestly, or fell it.');
+      said = said || 'An overdue milestone needs an honest answer.';
+    }
+    if (g.chase && g.chase.length) {
+      var cs = [];
+      for (i = 0; i < g.chase.length && i < 3; i++) cs.push('“' + g.chase[i].title + '”');
+      parts.push('Owed a reply: ' + cs.join(', ') + ' — the chase is due.');
+      said = said || pl(g.chase.length, 'reply') + ' owed a chase.';
+    }
+    if (g.dueToday && g.dueToday.length) {
+      parts.push('Due today: “' + g.dueToday[0].title + '”' +
+        (g.dueToday.length > 1 ? ' and ' + (g.dueToday.length - 1) + ' more' : '') + '.');
+      said = said || 'A milestone is due today.';
+    }
+    if (g.upcoming && g.upcoming.length) {
+      var ups = [];
+      for (i = 0; i < g.upcoming.length && i < 3; i++) {
+        var u = g.upcoming[i];
+        ups.push('“' + u.title + '” ' + (u.kind === 'chase' ? 'chase from ' : 'due ') + fmtDate(u.iso) +
+                 ' (' + pl(u.inDays, 'day') + ')');
+      }
+      parts.push('On the road this week: ' + ups.join(' · ') + '.');
+      said = said || 'The week ahead holds ' + pl(g.upcoming.length, 'dated step') + '.';
+    }
+    if (g.tasksDue) parts.push(pl(g.tasksDue, 'recurring task') + ' still due today — the walking, not just the map.');
+    if (!parts.length) {
+      parts.push('The road is quiet: nothing due, nothing owed, nothing dated within the week. If that feels wrong, the roadmap may be missing its dates.');
+      said = 'The road is quiet this week.';
+    }
+    if (g.guardrail) parts.push('Guardrail: ' + g.guardrail);
+    return { text: parts.join(' '), say: said || 'The road report stands.',
+             actions: [gotoAction('Open The Ascent', 'goals')], goto: null };
   }
 
   /* ---- unknown ---- */
@@ -694,6 +754,7 @@
         case 'status':        out = rStatus(ctx); break;
         case 'streak':        out = rStreak(ctx); break;
         case 'risk':          out = rRisk(ctx); break;
+        case 'ascent':        out = rAscent(ctx); break;
         case 'prophecy':      out = rProphecy(ctx); break;
         case 'nutrition':     out = rNutrition(ctx); break;
         case 'nextshift':     out = rNextShift(ctx, text); break;

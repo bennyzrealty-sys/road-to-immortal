@@ -782,7 +782,10 @@ G.patchGoal(inst.goal.id, { archived: false });
 // done+waiting orthogonality
 var mDone = inst.goal.milestones[0], mDue = inst.goal.milestones[1], mFree = inst.goal.milestones[2];
 check('done milestone counts as fallen for progress', G.progress(G.byId(inst.goal.id), T9).msDone, 1);
-check('ETA projects from the operation start, not install day (no day-1 fantasy)', G.progress(G.byId(inst.goal.id), T9).eta.days, 12);
+// increment 10 tightened the honesty rule: imported pre-done history can never
+// set the pace, so with ONLY the template's own tick done there is NO ETA yet
+// (this replaces the increment-9 assertion that projected 12d from that tick)
+check('ETA stays silent while only imported history is done', G.progress(G.byId(inst.goal.id), T9).eta, null);
 check('chase not due before its date', G.chaseDue('2026-07-26').length, 0);
 check('chase due on its date (even though done)', G.chaseDue(T9).length + '|' + G.chaseDue(T9)[0].ms.title, '1|Applied to bank');
 check('dueMilestones API: undone + arrived only', G.dueMilestones(T9).length + '|' + G.dueMilestones(T9)[0].ms.title, '1|Submit FWR');
@@ -833,6 +836,65 @@ G.installTemplate(TPL, '2026-07-22');
 var mx9 = MA.analyze(S.exportBundle(), '2026-07-24');
 check('mentor-analyze: waiting + guardrail ride along', mx9.goals[0].waiting.length + '|' + (mx9.goals[0].guardrail === TPL.guardrail), '1|true');
 check('mentor-analyze: dueSoon within 7 days', mx9.goals[0].dueSoon.length + '|' + mx9.goals[0].dueSoon[0].inDays, '1|1');
+
+/* =================== INCREMENT 10 — THE HERALD (visibility · honest pace) =================== */
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var T10 = '2026-07-22';
+var inst10 = G.installTemplate(TPL, T10);
+var g10 = inst10.goal;
+// --- honest ETA: imported history is stamped and mute on pace
+check('installTemplate stamps imported ticks preDone', g10.milestones[0].preDone + '|' + !!g10.milestones[1].preDone, 'true|false');
+check('pre-done still counts toward progress', G.progress(G.byId(g10.id), T10).msDone, 1);
+check('no ETA before a lived fall', G.progress(G.byId(g10.id), T10).eta, null);
+// --- roadAhead: one merged, date-sorted week view (due 07-25 + chase 07-27)
+var road22 = G.roadAhead('2026-07-22', 7);
+check('roadAhead merges due + chase, nearest first',
+  road22.length + '|' + road22[0].kind + '|' + road22[0].inDays + '|' + road22[1].kind + '|' + road22[1].inDays, '2|due|3|chase|5');
+var road26 = G.roadAhead('2026-07-26', 7);
+check('roadAhead carries overdue as negative days, first', road26[0].kind + '|' + road26[0].inDays, 'overdue|-1');
+check('roadAhead reads an arrived chase as inDays 0',
+  G.roadAhead('2026-07-28', 7).filter(function (r) { return r.kind === 'chase'; })[0].inDays, 0);
+check('roadAhead window excludes the far future', G.roadAhead('2026-07-01', 7).length, 0);
+// --- agenda: the sorted pending list IS the contract the coach card renders
+var agX = E.dailyAgenda(st, '2026-07-27', 12);
+check('agenda exposes the sorted pending list', Array.isArray(agX.pending) && agX.pending.length > 0, true);
+check('a live chase leads the plate', agX.pending[0].kind, 'goalchase');
+var agD = E.dailyAgenda(st, '2026-07-25', 12);
+check('a due-today milestone leads the plate', agD.pending[0].kind, 'goalms');
+// --- split budgets: two live chases can no longer starve the due-day item
+G.patchMilestone(g10.id, g10.milestones[0].id, { chaseISO: '2026-07-25' });
+G.patchMilestone(g10.id, g10.milestones[2].id, { chaseISO: '2026-07-25' });
+var agS = E.dailyAgenda(st, '2026-07-25', 12);
+check('chases and due-day items hold separate budgets',
+  agS.items.filter(function (it) { return it.kind === 'goalchase'; }).length + '|' +
+  agS.items.filter(function (it) { return it.kind === 'goalms'; }).length, '2|1');
+G.patchMilestone(g10.id, g10.milestones[0].id, { chaseISO: null });
+G.patchMilestone(g10.id, g10.milestones[2].id, { chaseISO: null });
+// --- the first LIVED fall opens the ETA at the lived rate
+G.toggleMilestone(g10.id, g10.milestones[1].id, '2026-07-25');
+var pr10 = G.progress(G.byId(g10.id), '2026-07-25');
+check('first lived fall opens the ETA', !!pr10.eta, true);
+check('ETA projects at the LIVED rate only (1 lived / 4d, 1 left -> 4d)', pr10.eta.days, 4);
+// --- Oracle: the road is now a first-class intent
+check('oracle: chase question routes to the road',
+  ORA.interpret('what should I chase this week').intent + '|' + ORA.interpret('whats due this week').intent + '|' +
+  ORA.interpret('the road ahead').intent, 'ascent|ascent|ascent');
+check('oracle: weekly recap keeps its own lane', ORA.interpret('weekly prophecy').intent, 'prophecy');
+var ra1 = ORA.respond('the road ahead', { goals: { hasGoals: true, overdue: [], chase: [{ title: 'Applied to bank' }], dueToday: [],
+  upcoming: [{ title: 'Submit FWR', kind: 'due', inDays: 3, iso: '2026-07-25' }], tasksDue: 2, guardrail: 'No resignation until signed.' } });
+check('oracle: road report names the chase, the road and the guardrail',
+  (ra1.text.indexOf('Applied to bank') >= 0) + '|' + (ra1.text.indexOf('Submit FWR') >= 0) + '|' + (ra1.text.indexOf('Guardrail') >= 0), 'true|true|true');
+check('oracle: empty Ascent answers honestly', ORA.respond('the road ahead', { goals: { hasGoals: false } }).text.indexOf('stands empty') >= 0, true);
+// --- config carries the new tunables (the UI must never hard-code them)
+check('config: herald tunables exist',
+  (typeof global.RTI_CONFIG.appVersion) + '|' + (global.RTI_CONFIG.sw.checkMinMs > 0) + '|' +
+  (global.RTI_CONFIG.banners.maxShown >= 1) + '|' + (global.RTI_CONFIG.goals.coachListCap >= 4) + '|' +
+  (global.RTI_CONFIG.goals.lookaheadDays >= 1), 'string|true|true|true|true');
+// --- hand-made goals keep the increment-7 pace rule (no preDone stamp)
+var hg = G.addGoal({ title: 'hand', why: '' }, '2026-07-20');
+G.addMilestone(hg.id, { title: 'a' }); G.addMilestone(hg.id, { title: 'b' });
+G.toggleMilestone(hg.id, G.byId(hg.id).milestones[0].id, '2026-07-22');
+check('hand-completed milestones still set the pace', G.progress(G.byId(hg.id), '2026-07-22').eta.days, 2);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
