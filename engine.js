@@ -41,9 +41,12 @@
 
   /* ---------- timeline status per date ---------- */
   function dayStatus(date) {
+    // a recorded relapse ALWAYS wins: even if clean:true was toggled on
+    // afterwards, the day is broken — the streak never ignores a relapse
+    if (S.relapseOnDate(date)) return 'broken';
     var log = S.getLog(date);
     if (log.clean === true) return 'clean';
-    if (log.clean === false || S.relapseOnDate(date)) return 'broken';
+    if (log.clean === false) return 'broken';
     return 'unlogged';
   }
 
@@ -74,6 +77,20 @@
     }
     if (streak > longest) longest = streak;
     return { current: streak, longest: longest, shields: shields, weekProgress: week, shieldBurnedToday: burnedToday };
+  }
+
+  /* ---------- "all daily targets done" for a given day's log ----------
+     Judged against the target set that existed WHEN THE DAY WAS LOGGED:
+     logs stamped with targetsTotal use it; older logs fall back to the
+     array's own length. This way editing the dailyTargets list in Settings
+     can never retro-corrupt historical days. */
+  function allTargetsDone(log) {
+    var d = (log && log.todayTargetsDone) || [];
+    if (!d.length) return false;
+    var total = (log.targetsTotal != null && log.targetsTotal > 0) ? log.targetsTotal : d.length;
+    var trues = 0;
+    for (var i = 0; i < d.length; i++) if (d[i] === true) trues++;
+    return trues >= total;
   }
 
   /* ---------- nutrition adherence + flags (6C) ---------- */
@@ -199,7 +216,6 @@
   function metersAsOf(settings, asOf) {
     var mc = CFG.meters, win = mc.windowDays;
     var streak = streakAsOf(settings, asOf);
-    var targets = settings.dailyTargets || CFG.dailyTargets;
 
     var chiRaw = 0, vitRaw = 0, wpRaw = 0;
     for (var i = 0; i < win; i++) {
@@ -223,8 +239,7 @@
               + (adh.chosen && adh.proteinHit ? mc.vitality.proteinHit : 0);
       // WILLPOWER window
       var urges = S.urgesOnDate(date);
-      var allTargets = log.todayTargetsDone && log.todayTargetsDone.length === targets.length
-                       && log.todayTargetsDone.every(function (b) { return b === true; });
+      var allTargets = allTargetsDone(log);
       wpRaw += mc.willpower.perCleanDay * clean
              + mc.willpower.perUrgeResisted * urges
              + (allTargets ? mc.willpower.allTargetsDone : 0);
@@ -381,9 +396,7 @@
   function dailyAgenda(settings, asOf, hour) {
     var log = S.getLog(asOf), n = log.nutrition || {};
     var phase = coachPhase(hour), pid = phase.id, curMeal = mealNudge(hour);
-    var targets = settings.dailyTargets || CFG.dailyTargets;
-    var doneArr = log.todayTargetsDone || [];
-    var allTargets = doneArr.length === targets.length && doneArr.length > 0 && doneArr.every(function (b) { return b === true; });
+    var allTargets = allTargetsDone(log);
     var moved = num(log.steps) > 0 || !!log.workout || (log.cardio && (log.cardio.minutes == null || num(log.cardio.minutes) > 0));
     var hasType = !!n.dayType, hasPlan = !!n.templateId;
     var mealLabel = {}; CFG.nutrition.mealOrder.forEach(function (mo) { mealLabel[mo.key] = mo.label; });
@@ -468,8 +481,7 @@
       case 'cardioMin':     return !!(log.cardio && num(log.cardio.minutes) >= trial.need);
       case 'sleepHrs':      return (log.sleepHrs != null && isFinite(+log.sleepHrs) && +log.sleepHrs >= trial.need);
       case 'proteinHit':    return !!nutritionAdherence(log).proteinHit;
-      case 'allTargets':    var t = settings.dailyTargets || CFG.dailyTargets, d = log.todayTargetsDone || [];
-                            return d.length === t.length && d.length > 0 && d.every(function (b) { return b === true; });
+      case 'allTargets':    return allTargetsDone(log);
       default: return false;
     }
   }
@@ -718,9 +730,11 @@
     };
   }
 
-  /* ---------- rankETA: projected arrival dates at the next ranks ----------
-     cleanRate over the whole answered history (like performanceSummary);
-     floor 0.05 so a thin record never projects an absurd horizon. */
+  /* ---------- rankETA: arrival dates at the next ranks ----------
+     Ranks are DAY-anchored everywhere (rankFor reads the day number), so the
+     arrival dates are calendar-certain — never projected from the streak
+     (which after a relapse would "project" ranks already held). cleanRate
+     over the answered history is still returned for prose, not for dates. */
   function rankETA(settings, asOf) {
     var elapsed = Math.max(0, U.daysBetween(settings.startDate, asOf));
     var clean = 0, answered = 0;
@@ -730,11 +744,11 @@
       else if (st === 'broken') answered++;
     }
     var cleanRate = clean / Math.max(1, answered);
-    var streak = streakAsOf(settings, asOf);
+    var day = dayNumber(settings, asOf);
     var projections = [], ranks = CFG.RANKS;
     for (var r = 0; r < ranks.length && projections.length < 4; r++) {
-      if (ranks[r].reach <= streak.current) continue;      // already reached (by streak)
-      var daysAway = Math.ceil((ranks[r].reach - streak.current) / Math.max(cleanRate, 0.05));
+      if (ranks[r].reach <= day) continue;                 // already reached (by day)
+      var daysAway = ranks[r].reach - day;
       projections.push({ name: ranks[r].name, reach: ranks[r].reach,
                          daysAway: daysAway, etaISO: U.addDays(asOf, daysAway) });
     }
@@ -747,7 +761,6 @@
      clean=2, allTargets=1, proteinHit=1, 10k steps=1 (ties -> latest). */
   function weeklyProphecy(settings, asOf) {
     var from = U.addDays(asOf, -6), to = asOf;
-    var targets = settings.dailyTargets || CFG.dailyTargets;
     var cleanDays = 0, answered = 0, adhSum = 0, adhN = 0;
     var moodSum = 0, moodN = 0, slpSum = 0, slpN = 0, urges = 0, trialsWon = 0;
     var bestDate = null, bestScore = 0;
@@ -761,9 +774,7 @@
       if (log.sleepHrs != null && isFinite(+log.sleepHrs)) { slpSum += +log.sleepHrs; slpN++; }
       urges += S.urgesOnDate(date);
       if (dailyTrial(settings, date).done) trialsWon++;
-      var done = log.todayTargetsDone || [];
-      var allT = done.length === targets.length && done.length > 0
-                 && done.every(function (b) { return b === true; });
+      var allT = allTargetsDone(log);
       var score = (st === 'clean' ? 2 : 0) + (allT ? 1 : 0)
                 + (adh.proteinHit ? 1 : 0) + (num(log.steps) >= 10000 ? 1 : 0);
       if (score > 0 && score >= bestScore) { bestScore = score; bestDate = date; } // ties -> latest
@@ -800,6 +811,7 @@
 
   global.RTI_ENGINE = {
     dayNumber: dayNumber, progress: progress, rankFor: rankFor, dayStatus: dayStatus,
+    allTargetsDone: allTargetsDone,
     streakAsOf: streakAsOf, metersAsOf: metersAsOf, chiDeltaForBreathing: chiDeltaForBreathing,
     weeklyTotals: weeklyTotals, snapshot: snapshot,
     chiSeries: chiSeries, totalChiAccumulated: totalChiAccumulated,

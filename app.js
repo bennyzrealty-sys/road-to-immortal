@@ -557,11 +557,15 @@
       return '<div class="check' + (on ? ' on' : '') + '" data-target="' + idx + '"><span class="box">' + (on ? '✓' : '') + '</span><span class="txt">' + esc(t) + '</span></div>';
     }).join('');
 
-    // backup reminder
+    // backup reminders — the journey JSON, and the photos (which are NOT in it)
     var meta = S.getMeta(), backupDue = !meta.lastExportISO || U.daysBetween(meta.lastExportISO, today()) >= CFG.backup.remindEveryDays;
     var backupBanner = backupDue ? '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
       '<div class="row"><div class="grow"><b>Back up your journey</b><div class="tiny muted">500 days of progress lives only on this device. Export a copy.</div></div>' +
       '<button class="btn sm gold" data-go="settings">Export</button></div></div>' : '';
+    var photoDue = photoCount > 0 && (!meta.lastPhotoExportISO || U.daysBetween(meta.lastPhotoExportISO, today()) >= CFG.backup.remindEveryDays);
+    var photoBanner = photoDue ? '<div class="card" style="border-color:rgba(255,179,71,.35);background:rgba(255,179,71,.08)">' +
+      '<div class="row"><div class="grow"><b>Back up your photos</b><div class="tiny muted">' + photoCount + ' photo' + (photoCount === 1 ? '' : 's') + ' live only in this browser — they are NOT in the main JSON export.</div></div>' +
+      '<button class="btn sm gold" data-go="photos">Export</button></div></div>' : '';
 
     // streak catch-up nudge: count unlogged days between start and today (single parse, cheap)
     var allLogs = S.getLogs(), relSet = {};
@@ -577,7 +581,7 @@
         '<button class="btn sm cyan" data-go="settings">Catch up</button></div></div>' : '';
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
+      header('today') + backupBanner + photoBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -612,7 +616,10 @@
         var idx = +el.getAttribute('data-target');
         var lg = S.getLog(today()), d = (lg.todayTargetsDone || []).slice();
         while (d.length < targets.length) d.push(false);
-        d[idx] = !d[idx]; S.patchLog(today(), { todayTargetsDone: d }); render();
+        d[idx] = !d[idx];
+        // targetsTotal freezes "how many targets existed today", so editing
+        // the list later can never retro-corrupt this day's all-done check
+        S.patchLog(today(), { todayTargetsDone: d, targetsTotal: targets.length }); render();
       };
     });
     appEl.querySelectorAll('[data-q]').forEach(function (el) {
@@ -1000,6 +1007,7 @@
   }
   function showPhotoVerdict(type, rec) {
     RTI_PHOTO.all().then(function (ps) {
+      photoCount = ps.length; // keep the Today photo-backup nag honest
       var ofType = ps.filter(function (p) { return p.type === type; });
       var base = ofType[0] ? ofType[0].metrics : null;
       var prevRec = ofType.length >= 2 ? ofType[ofType.length - 2] : null;
@@ -1031,8 +1039,18 @@
       var url = URL.createObjectURL(blob), a = document.createElement('a');
       a.href = url; a.download = 'road-to-immortal-photos-' + today() + '.json';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      toast('Photo journey exported.');
+      S.setMeta({ lastPhotoExportISO: today() });
+      toast('Photo journey exported.'); render();
     });
+  }
+  // photo count, kept fresh for the Today backup nag (IndexedDB is async, so
+  // the count is fetched once at boot and refreshed whenever photos change)
+  var photoCount = 0;
+  function refreshPhotoCount() {
+    try {
+      if (window.RTI_PHOTO && RTI_PHOTO.all)
+        RTI_PHOTO.all().then(function (ps) { photoCount = ps.length; }).catch(function () {});
+    } catch (e) {}
   }
   function importPhotos(e) {
     var f = e.target.files && e.target.files[0]; if (!f) return;
@@ -1040,7 +1058,7 @@
     r.onload = function () {
       var obj; try { obj = JSON.parse(r.result); } catch (err) { alert('That file is not valid JSON.'); return; }
       if (!confirm('Import this photo journey? Photos are ADDED to what you already have.')) return;
-      RTI_PHOTO.importJourney(obj).then(function (res) { if (res.ok) { toast('Imported ' + res.count + ' photos.'); render(); } else alert(res.error); }).catch(function (err) { alert('Import failed: ' + (err && err.message || err)); });
+      RTI_PHOTO.importJourney(obj).then(function (res) { if (res.ok) { refreshPhotoCount(); toast('Imported ' + res.count + ' photos.'); render(); } else alert(res.error); }).catch(function (err) { alert('Import failed: ' + (err && err.message || err)); });
     };
     r.readAsText(f);
   }
@@ -1928,14 +1946,18 @@
       res = { text: (CFG.oracle && CFG.oracle.unknown && CFG.oracle.unknown.length) ?
         dailyPick(CFG.oracle.unknown) : 'The record is silent on that.', say: null, actions: [] };
     }
-    msgs.push({ who: 'oracle', text: res.text, actions: res.actions || [] });
+    // stamp each proposal with the day it was SPOKEN, so confirming a chip
+    // after midnight still writes to the day the words described
+    var spokenOn = today(), acts = res.actions || [];
+    for (var ai = 0; ai < acts.length; ai++) if (!acts[ai].date) acts[ai].date = spokenOn;
+    msgs.push({ who: 'oracle', text: res.text, actions: acts });
     oracleSpeak(res.say);
     render();
   }
   // execute an action chip. The Oracle only ever PROPOSES — every write
   // happens here, on the owner's tap, with the same semantics as quick log.
-  function runOracleAction(act, payload) {
-    var d = today(), log = S.getLog(d);
+  function runOracleAction(act, payload, date) {
+    var d = date || today(), log = S.getLog(d);
     if (act === 'steps') {                            // steps arrive as a daily TOTAL — set, not add
       var stp = Math.max(0, Math.round(+payload || 0));
       S.patchLog(d, { steps: stp }); toast('Steps set to ' + stp.toLocaleString() + '.'); render(); return;
@@ -2039,7 +2061,7 @@
           '<td style="text-align:right"><b>' + esc(pr.etaISO) + '</b> <span class="tiny faint">~' + pr.daysAway + 'd</span></td></tr>';
       }).join('');
       rankH = '<div class="card"><h3>Rank horizon</h3><table style="width:100%;font-size:13px">' + rrows + '</table>' +
-        '<div class="tiny faint" style="margin-top:8px">Projected at ' + Math.round((eta.cleanRate || 0) * 100) + '% of answered days clean — a projection, not a promise.</div></div>';
+        '<div class="tiny faint" style="margin-top:8px">Ranks arrive by the calendar — the streak marks days won. You hold ' + Math.round((eta.cleanRate || 0) * 100) + '% of answered days clean.</div></div>';
     } else {
       rankH = '<div class="card"><h3>Rank horizon</h3><p class="faint tiny">The ladder needs a written history to project from — log the days.</p></div>';
     }
@@ -2092,7 +2114,7 @@
         var pr = b.getAttribute('data-oa').split(':');
         var m = state._oracleMsgs ? state._oracleMsgs[+pr[0]] : null;
         var a = (m && m.actions) ? m.actions[+pr[1]] : null;
-        if (a) runOracleAction(a.act, a.payload);
+        if (a) runOracleAction(a.act, a.payload, a.date);
       };
     });
     // keep the thread pinned to the newest exchange after every render
@@ -2443,16 +2465,35 @@
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });
   }
+  // if a screen builder throws, show a recovery card instead of a blank app —
+  // the export button must survive ANY screen bug (the data matters most)
+  function renderErrorScreen(err) {
+    try {
+      appEl.innerHTML = '';
+      appEl.appendChild(h('<div class="screen"><div class="card" style="border-color:rgba(255,107,107,.4)">' +
+        '<h3>Something broke on this screen</h3>' +
+        '<div class="tiny muted" style="margin:6px 0 10px">' + esc(String((err && err.message) || err)) + ' — your data is untouched. Export a backup, then go back.</div>' +
+        '<div class="btn-grid"><button class="btn gold" id="err-export">Export backup</button>' +
+        '<button class="btn cyan" id="err-home">Back to Today</button></div></div></div>'));
+      var ex = appEl.querySelector('#err-export'); if (ex) ex.onclick = doExport;
+      var hm = appEl.querySelector('#err-home'); if (hm) hm.onclick = function () { state.tab = 'today'; render(); };
+    } catch (e2) {}
+  }
   function render() {
-    if (state.tab !== 'log' && state.tab !== 'nutrition' && state.tab !== 'study') state.viewDate = today();
-    (SCREENS[state.tab] || screenToday)();
-    renderTabs();
-    // global data-go links + relapse
-    appEl.querySelectorAll('[data-go]').forEach(function (el) {
-      el.onclick = function () { var g = el.getAttribute('data-go'); if (g === 'relapse') openRelapse(); else { state.tab = g; window.scrollTo(0, 0); render(); } };
-    });
-    // milestone fires on the actual rank-up, whatever tab is active
-    try { checkMilestone(E.snapshot(today())); } catch (e) {}
+    try {
+      if (state.tab !== 'log' && state.tab !== 'nutrition' && state.tab !== 'study') state.viewDate = today();
+      (SCREENS[state.tab] || screenToday)();
+      renderTabs();
+      // global data-go links + relapse
+      appEl.querySelectorAll('[data-go]').forEach(function (el) {
+        el.onclick = function () { var g = el.getAttribute('data-go'); if (g === 'relapse') openRelapse(); else { state.tab = g; window.scrollTo(0, 0); render(); } };
+      });
+      // milestone fires on the actual rank-up, whatever tab is active
+      try { checkMilestone(E.snapshot(today())); } catch (e) {}
+    } catch (err) {
+      try { console.error('[RTI] render failed:', err); } catch (e3) {}
+      renderErrorScreen(err);
+    }
   }
 
   /* =================== MIDNIGHT ROLLOVER =================== */
@@ -2474,6 +2515,17 @@
   fab.onclick = openUrge;
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { var ov = document.querySelector('.overlay'); if (ov) { if (ov._cleanup) ov._cleanup(); else ov.remove(); } } });
   if (S.getSettings().reducedMotion) document.body.classList.add('reduce-motion');
+  // ask the browser to shield the ledger from storage eviction (Android/desktop
+  // honour this; it is a no-op where unsupported — never blocks anything)
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+  // a failed localStorage write must be SEEN, not swallowed (quota / private
+  // mode). Throttled so a burst of failures can't storm the screen with toasts.
+  var lastWriteWarn = 0;
+  S.onWriteError = function () {
+    var now = Date.now();
+    if (now - lastWriteWarn > 60000) { lastWriteWarn = now; toast('⚠ Save FAILED — storage may be full. Export your backup NOW.', 6000); }
+  };
+  refreshPhotoCount();
   render();
   scheduleMidnight();
   window.RTI = { render: render, state: state, engine: E, store: S };

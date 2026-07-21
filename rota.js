@@ -298,6 +298,7 @@
     // previous line (RFC 5545 §3.1), then split into real lines
     var lines = String(text).replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
     var inEvent = false, start = null, end = null, allDay = false, summary = null;
+    var rrules = 0; // recurrence rules are NOT expanded — count them so we can warn
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line) continue;
@@ -341,7 +342,12 @@
         end = icsDate(value);
       } else if (name === 'SUMMARY') {
         summary = icsText(value);
+      } else if (name === 'RRULE') {
+        rrules++;
       }
+    }
+    if (rrules) {
+      warn(res, rrules + ' recurring event' + (rrules === 1 ? '' : 's') + ' (RRULE) — repeats were NOT expanded, only first occurrences imported. Export the rota with each shift as its own event, or add the repeat days by hand / with "Repeat a pattern".');
     }
     return res;
   }

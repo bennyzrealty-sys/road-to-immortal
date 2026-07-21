@@ -56,13 +56,13 @@ npx --yes serve -l 8123 .
 
 **Verify offline:**
 1. Open `http://localhost:8123/` and load it once (the SW caches the shell).
-2. DevTools → Application → Service Workers shows it **activated**; Cache Storage shows `rti-shell-v1`.
+2. DevTools → Application → Service Workers shows it **activated**; Cache Storage shows the current `rti-shell-v12`.
 3. DevTools → Network → tick **Offline**, then reload. The app still loads fully.
 4. (Mobile) open the same URL on your phone on the same network, "Add to Home Screen".
 
 **Re-run the engine self-test** after any change to `engine.js`/`config.js`:
 ```sh
-node tools/selftest.js     # expect: 30 passed, 0 failed
+node tools/selftest.js     # expect: 233 passed, 0 failed
 ```
 
 **Regenerate icons** (only if you change the art):
@@ -351,6 +351,57 @@ Three new modules (`rota.js` → `RTI_ROTA`, `sanctum.js` → `RTI_SANCTUM`, `or
 All new logic is pure and covered: **73 new self-test assertions** (rota parsing incl. ICS
 expansion + never-overwrite, foresight determinism + bands, moon/sun/brahma math incl. polar
 edges, oracle intent + number extraction) — `node tools/selftest.js` → **207 passed, 0 failed**.
+
+## Increment 5 — The Forge (hardening the ledger)
+
+A full adversarial review of the app found the soft spots; this increment closes them
+before the record grows. No new features — durability, correctness, speed. SW → **v12**.
+
+**Durability**
+- `navigator.storage.persist()` is requested at boot — asks the browser to shield
+  localStorage + IndexedDB from storage eviction (honoured on Android/desktop Chrome).
+- A **failed localStorage write is now surfaced** (`store.js` `onWriteError` → a
+  throttled warning toast) instead of being silently swallowed; the in-memory copy
+  stays live so the session keeps working while you export.
+- **Photo-backup nag**: photos are *not* in the main JSON export, and nothing ever
+  reminded you to export them. Today now shows a "Back up your photos" banner
+  (own `lastPhotoExportISO` meta, same weekly cadence as the JSON nag).
+- **Safe import**: `importBundle` rejects `logs:null`/`settings:null` (the
+  `typeof null === 'object'` trap), rejects backups from a **newer schema**, snapshots
+  the current state to `rti_pre_import_backup` first, and **restores everything** if a
+  write fails part-way — a bad backup can never leave a half-replaced store.
+- **Render guard**: if any screen builder throws, a recovery card (with a working
+  *Export backup* button) renders instead of a blank app.
+
+**Correctness**
+- **Oracle number↔intent pairing**: "slept 7 hours and walked 12000 steps" used to
+  propose *Log 7 steps* (first number in the string won). The winning log intent now
+  takes the number **nearest its own unit vocab** — 12000 pairs with steps, 7 with sleep.
+- **Oracle proposals are dated**: a chip spoken at 23:59 and confirmed at 00:01 writes
+  to the day it was spoken, not the new day.
+- **`rankETA` is day-anchored**: ranks arrive by calendar day everywhere (`rankFor`), so
+  the Rank horizon now lists exact arrival dates instead of streak-based projections
+  that could "project" ranks already held after a relapse.
+- **A recorded relapse always wins**: `dayStatus` puts the relapse check first, so
+  toggling *Held* on a relapse day can no longer make the streak count it clean.
+- **`dailyTargets` editing is era-safe**: each day's log stamps `targetsTotal`, and all
+  "all targets done" checks (`engine.allTargetsDone`) judge a day against the target
+  list that existed when it was logged — editing the list never rewrites history.
+- **ICS RRULE warning**: recurring calendar events are not expanded by the rota
+  importer; it now says so loudly in the import warnings instead of silently keeping
+  only the first occurrence.
+
+**Speed (the day-60 wall)**
+- `store.js` now keeps an **in-memory cache** of the parsed blobs; every write goes
+  through it, so cache and storage can't drift. Engine history replays
+  (`streakAsOf`, `chiSeries`, `correlationStatus`…) no longer re-`JSON.parse` the whole
+  logs object per day — the O(day²)/O(day³) blow-up that would have janked the
+  Ascension/Sight screens from day 60 onward is gone.
+
+26 new self-test assertions (cache invalidation + zero-storage reads, write-failure
+surfacing, import rejection/rollback, relapse-wins, era-safe targets, day-anchored
+rankETA, oracle pairing incl. ties and `12k`, RRULE warning) —
+`node tools/selftest.js` → **233 passed, 0 failed**.
 
 ## Open risks / TODOs
 

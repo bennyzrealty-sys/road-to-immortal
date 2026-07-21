@@ -581,5 +581,82 @@ check('oracle whisper deterministic per day',
   ORA.whisper({ asOf: '2026-06-26' }).length > 0, true);
 check('oracle whisper survives an empty ctx', typeof ORA.whisper({}) === 'string' && ORA.whisper({}).length > 0, true);
 
+/* =================== INCREMENT 5 — THE FORGE (hardening) =================== */
+
+// -- store cache: writes invalidate, reads never re-touch storage --
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+S.saveLog('2026-06-10', Object.assign(S.blankLog('2026-06-10'), { clean: true }));
+var cacheA = S.getLog('2026-06-10').clean;
+S.patchLog('2026-06-10', { clean: false });
+check('store cache invalidates on write', cacheA + '|' + S.getLog('2026-06-10').clean, 'true|false');
+var gets = 0, origGet = global.localStorage.getItem;
+global.localStorage.getItem = function (k) { gets++; return origGet(k); };
+for (var ci = 0; ci < 50; ci++) S.getLog('2026-06-10');
+global.localStorage.getItem = origGet;
+check('store cache: 50 getLog calls touch storage 0 times', gets, 0);
+
+// -- a failed persist surfaces (onWriteError) and memory stays live --
+var warned = 0; S.onWriteError = function () { warned++; };
+var origSet = global.localStorage.setItem;
+global.localStorage.setItem = function () { throw new Error('quota'); };
+S.saveLog('2026-06-11', Object.assign(S.blankLog('2026-06-11'), { clean: true }));
+global.localStorage.setItem = origSet;
+S.onWriteError = null;
+check('failed write calls onWriteError', warned >= 1, true);
+check('failed write keeps the value live in memory', S.getLog('2026-06-11').clean, true);
+
+// -- safe import: null holes, newer schema, part-way failure restore --
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+S.saveLog('2026-06-09', Object.assign(S.blankLog('2026-06-09'), { clean: true }));
+check('import rejects logs:null (typeof null trap)', S.importBundle({ app: 'road-to-immortal', settings: {}, logs: null }).ok, false);
+check('import rejects settings:null', S.importBundle({ app: 'road-to-immortal', settings: null, logs: {} }).ok, false);
+check('import rejects a newer schema', S.importBundle({ app: 'road-to-immortal', schema: 99, settings: {}, logs: {} }).ok, false);
+check('local data untouched after rejected imports', S.getLog('2026-06-09').clean, true);
+origSet = global.localStorage.setItem;
+global.localStorage.setItem = function (k, v) { if (k === 'rti_urges_v1') throw new Error('quota'); return origSet(k, v); };
+var impFail = S.importBundle({ app: 'road-to-immortal', schema: 1, settings: S.defaultSettings(), logs: {}, urges: [{ ts: 1, date: '2026-06-09' }] });
+global.localStorage.setItem = origSet;
+check('part-way import failure reports the error', impFail.ok, false);
+check('part-way import failure restores previous logs', S.getLog('2026-06-09').clean, true);
+
+// -- dayStatus: a recorded relapse beats clean:true --
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var rw = 0; rw < 5; rw++) { var drw = U.addDays('2026-06-08', rw); S.saveLog(drw, Object.assign(S.blankLog(drw), { clean: true })); }
+S.addRelapse({ date: '2026-06-10', ts: 0 });
+check('relapse wins over clean:true', E.dayStatus('2026-06-10'), 'broken');
+check('streak honours the relapse day', E.streakAsOf(st, '2026-06-12').current, 2);
+
+// -- allTargetsDone: judged against the era the day was logged in --
+check('allTargets: stamped 3, all 3 ticked', E.allTargetsDone(Object.assign(S.blankLog('2026-06-20'), { todayTargetsDone: [true, true, true], targetsTotal: 3 })), true);
+check('allTargets: stamped 3, only 2 ticked', E.allTargetsDone(Object.assign(S.blankLog('2026-06-20'), { todayTargetsDone: [true, true, false], targetsTotal: 3 })), false);
+check('allTargets: legacy log judged by its own length', E.allTargetsDone(Object.assign(S.blankLog('2026-06-20'), { todayTargetsDone: [true, true] })), true);
+check('allTargets: empty array is never "all done"', E.allTargetsDone(S.blankLog('2026-06-20')), false);
+
+// -- rankETA: day-anchored (a relapse must not resurrect held ranks) --
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var re1 = 0; re1 < 19; re1++) { var dre = U.addDays('2026-06-08', re1); S.saveLog(dre, Object.assign(S.blankLog(dre), { clean: re1 !== 10 })); }
+var eta2 = E.rankETA(st, '2026-06-26'); // day 19, one slip -> streak 8, rank still day-anchored
+check('rankETA day-anchored: no already-held ranks projected', eta2.projections[0].reach > 19, true);
+check('rankETA lands the reach day exactly (21 in 2 days)', eta2.projections[0].daysAway + '|' + eta2.projections[0].etaISO, '2|2026-06-28');
+near('rankETA still reports cleanRate for prose', eta2.cleanRate, 18 / 19, 0.01);
+
+// -- oracle: the number pairs with the WINNING intent, not first-in-string --
+var it1 = ORA.interpret('i slept 7 hours and walked 12000 steps');
+check('oracle pairs number with winning intent', it1.intent + '|' + it1.n, 'logSteps|12000');
+var it2 = ORA.interpret('walked 12,000 steps and slept 7 hours');
+check('oracle pairing with comma number first', it2.intent + '|' + it2.n, 'logSteps|12000');
+var it3 = ORA.interpret('i slept 7 hours');
+check('oracle plain sleep keeps its 7', it3.intent + '|' + it3.n, 'logSleep|7');
+var it4 = ORA.interpret('slept 8 hours then meditated 20 minutes');
+check('oracle tie-break intent takes ITS OWN number', it4.intent + '|' + it4.n, 'logMeditation|20');
+var it5 = ORA.interpret('12k steps');
+check('oracle 12k steps still 12000', it5.intent + '|' + it5.n, 'logSteps|12000');
+
+// -- rota ICS: unexpanded RRULEs must WARN, never silently drop repeats --
+var icsR = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260706\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSUMMARY:N\r\nEND:VEVENT\r\nEND:VCALENDAR';
+var rrRes = R.parseICS(icsR);
+check('ICS RRULE imports the first occurrence', rrRes.entries.length + '|' + rrRes.entries[0].date, '1|2026-07-06');
+check('ICS RRULE raises a warning', rrRes.warnings.some(function (w) { return w.indexOf('RRULE') >= 0; }), true);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

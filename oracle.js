@@ -111,6 +111,40 @@
     return null;
   }
 
+  // Every number token with its position; 'k'/'thousand' multipliers are
+  // applied PER TOKEN so '7 hours' and '12k steps' coexist in one sentence.
+  function numberTokens(s) {
+    var re = /(\d+(?:\.\d+)?)(\s*k\b|\s*thousand\b)?/g, out = [], m;
+    while ((m = re.exec(s)) !== null) {
+      var v = parseFloat(m[1]);
+      if (m[2]) v = v * 1000;
+      out.push({ value: v, start: m.index, end: m.index + m[0].length });
+    }
+    return out;
+  }
+  // The number NEAREST the winning intent's unit vocab — so 'slept 7 hours
+  // and walked 12000 steps' pairs 12000 (not 7) with the steps intent.
+  // Ties prefer a number that comes BEFORE its unit ('7 hours' idiom).
+  function extractNumberFor(t, unitRe) {
+    var s = t.replace(/(\d),(?=\d)/g, '$1');    // same comma strip as extractNumber
+    var toks = numberTokens(s);
+    if (!toks.length) return extractNumber(t);  // word-forms fallback
+    var units = [], re = new RegExp(unitRe.source, 'g'), m;
+    while ((m = re.exec(s)) !== null) units.push({ start: m.index, end: m.index + m[0].length });
+    if (!units.length) return toks[0].value;
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < toks.length; i++) {
+      for (var j = 0; j < units.length; j++) {
+        var d;
+        if (toks[i].end <= units[j].start) d = units[j].start - toks[i].end - 0.5; // number-before-unit wins ties
+        else if (units[j].end <= toks[i].start) d = toks[i].start - units[j].end;
+        else d = 0;
+        if (d < bestD) { bestD = d; best = toks[i].value; }
+      }
+    }
+    return best;
+  }
+
   /* Intent table. Each rule is [regex, weight]; an intent's score is the
      sum of every rule that matches. Highest score wins; array ORDER breaks
      ties (most specific / most urgent first). `numBonus` intents (the log
@@ -127,19 +161,19 @@
         [/mark (today )?(as )?clean/, 4], [/held the line/, 4], [/\bi held\b/, 4],
         [/clean today/, 4], [/stayed clean/, 4], [/today was clean/, 4], [/\bim clean\b/, 3]
       ] },
-    { id: 'logSteps', numBonus: true, rules: [
+    { id: 'logSteps', numBonus: true, unit: /\bsteps?\b|\bwalked\b/, rules: [
         [/\bsteps?\b/, 3], [/\bwalked\b/, 3]
       ] },
-    { id: 'logMeditation', numBonus: true, rules: [
+    { id: 'logMeditation', numBonus: true, unit: /meditat[a-z]*/, rules: [
         [/meditat/, 4]
       ] },
-    { id: 'logBreathing', numBonus: true, rules: [
+    { id: 'logBreathing', numBonus: true, unit: /pranayama|breath[a-z]*/, rules: [
         [/pranayama/, 4], [/breath/, 3]
       ] },
-    { id: 'logSleep', numBonus: true, rules: [
+    { id: 'logSleep', numBonus: true, unit: /\bslept\b|\bsleep\b|\bhours?\b|\bhrs?\b/, rules: [
         [/\bslept\b/, 4], [/hours of sleep/, 4], [/\bsleep\b/, 3]
       ] },
-    { id: 'logMood', numBonus: true, rules: [
+    { id: 'logMood', numBonus: true, unit: /\bmood\b|\bfeel(?:ing)?\b/, rules: [
         [/\bmood\b/, 3], [/feeling \d/, 4], [/\bfeel(ing)?\b/, 1]
       ] },
     { id: 'nextshift', rules: [
@@ -200,16 +234,21 @@
     var n = null;
     try { n = extractNumber(t); } catch (e) { n = null; }
     if (!t) return { intent: 'unknown', n: null, confidence: 0 };
-    var best = null, bestScore = 0;
+    var best = null, bestDef = null, bestScore = 0;
     for (var i = 0; i < INTENTS.length; i++) {
       var def = INTENTS[i], score = 0;
       for (var j = 0; j < def.rules.length; j++) {
         if (def.rules[j][0].test(t)) score += def.rules[j][1];
       }
       if (score > 0 && def.numBonus && n != null) score += 1; // unit vocab + number
-      if (score > bestScore) { bestScore = score; best = def.id; } // '>' keeps array-order tiebreak
+      if (score > bestScore) { bestScore = score; best = def.id; bestDef = def; } // '>' keeps array-order tiebreak
     }
     if (!best) return { intent: 'unknown', n: n, confidence: 0 };
+    // log family: re-extract the number NEAREST this intent's own unit vocab,
+    // so a multi-topic sentence can't pair the wrong number with the intent
+    if (bestDef.unit) {
+      try { var n2 = extractNumberFor(t, bestDef.unit); if (n2 != null) n = n2; } catch (e2) {}
+    }
     return { intent: best, n: n, confidence: U.clamp(U.round(bestScore / 5, 2), 0, 1) };
   }
 
@@ -531,14 +570,15 @@
     var eta = ctx.eta;
     if (eta && eta.projections && eta.projections.length) {
       var p = eta.projections[0];
-      var pace = eta.cleanRate != null ? Math.round(eta.cleanRate * 100) + '% of answered days clean' : 'your current pace';
-      var text = 'At ' + pace + ', ' + p.name + ' falls near ' + fmtDate(p.etaISO) + ' — ' + pl(p.daysAway, 'day') + ' out.';
+      var text = p.name + ' falls on ' + fmtDate(p.etaISO) + ' — ' + pl(p.daysAway, 'day') + ' of walking, by the calendar.';
       var rest = [];
       for (var i = 1; i < eta.projections.length && i < 4; i++)
         rest.push(eta.projections[i].name + ' ' + fmtDate(eta.projections[i].etaISO));
       if (rest.length) text += ' Beyond it: ' + rest.join(' · ') + '.';
-      text += ' A projection, not a promise — the pace is yours to change.';
-      return { text: text, say: p.name + ' is about ' + p.daysAway + ' days out at your pace.', actions: [], goto: null };
+      if (eta.cleanRate != null)
+        text += ' The rank marks days survived; the streak marks days won — you hold ' +
+                Math.round(eta.cleanRate * 100) + '% of answered days clean.';
+      return { text: text, say: p.name + ' is ' + p.daysAway + ' days out.', actions: [], goto: null };
     }
     var snap = ctx.snap;
     if (snap && snap.rank && snap.rank.next) {

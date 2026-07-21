@@ -24,15 +24,32 @@
   };
   var SCHEMA = 1;
 
+  /* In-memory cache of the parsed blobs. The engine replays history by
+     calling getLog()/relapseOnDate() per day; without this every call
+     re-parsed the ENTIRE logs object — O(day²) per replay, a real wall by
+     day 500. Every write goes through write(), which keeps the cache the
+     single live copy, so cache and storage can never drift. */
+  var MEM = {};
+
   function read(key, fallback) {
+    if (Object.prototype.hasOwnProperty.call(MEM, key)) return MEM[key];
     try {
       var raw = localStorage.getItem(key);
-      return raw == null ? fallback : JSON.parse(raw);
+      if (raw == null) return fallback;
+      var val = JSON.parse(raw);
+      MEM[key] = val;
+      return val;
     } catch (e) { return fallback; }
   }
   function write(key, val) {
+    MEM[key] = val; // memory stays current even if the disk write fails below
     try { localStorage.setItem(key, JSON.stringify(val)); return true; }
-    catch (e) { return false; }
+    catch (e) {
+      // quota / private-mode failure: the app must SAY so, not swallow it —
+      // app.js installs onWriteError to surface a warning to the owner.
+      try { if (api.onWriteError) api.onWriteError(key, e); } catch (e2) {}
+      return false;
+    }
   }
 
   /* ---------------- Settings ---------------- */
@@ -84,6 +101,9 @@
       urgeIntensity: null,    // 1-5
       mood: null,             // 1-5
       todayTargetsDone: [],   // booleans matching settings.dailyTargets
+      targetsTotal: null,     // how many targets EXISTED when this day was logged
+                              //   (stamped on save; lets the owner edit the list
+                              //   later without retro-corrupting old days)
       notes: '',
       study: null,            // section 6 object
       trial: null             // { id, done } once a manual daily-trial is attempted (id guards stale days)
@@ -199,26 +219,42 @@
       rota: getRota()
     };
   }
-  // returns { ok, error } — overwrites all local data on success.
+  // a real, non-null, non-array object (typeof null === 'object' is the trap)
+  function isObj(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
+  // returns { ok, error } — overwrites all local data on success. The current
+  // state is snapshotted first and restored if any write fails part-way, so a
+  // bad or oversized backup can never leave a half-replaced store.
   function importBundle(obj) {
     if (!obj || obj.app !== 'road-to-immortal') return { ok: false, error: 'Not a Road to Immortal backup file.' };
-    if (typeof obj.settings !== 'object' || typeof obj.logs !== 'object') return { ok: false, error: 'Backup is missing core data.' };
-    write(K.settings, obj.settings);
-    write(K.logs, obj.logs);
-    write(K.relapses, Array.isArray(obj.relapses) ? obj.relapses : []);
-    write(K.urges, Array.isArray(obj.urges) ? obj.urges : []);
-    write(K.meta, obj.meta && typeof obj.meta === 'object' ? obj.meta : getMeta());
+    if (!isObj(obj.settings) || !isObj(obj.logs)) return { ok: false, error: 'Backup is missing core data.' };
+    if (obj.schema != null && +obj.schema > SCHEMA)
+      return { ok: false, error: 'This backup is from a newer version of the app (schema ' + obj.schema + '). Update the app first, then import.' };
+    var prev = exportBundle();
+    try { localStorage.setItem('rti_pre_import_backup', JSON.stringify(prev)); } catch (e) {}
+    var ok = write(K.settings, obj.settings);
+    ok = write(K.logs, obj.logs) && ok;
+    ok = write(K.relapses, Array.isArray(obj.relapses) ? obj.relapses : []) && ok;
+    ok = write(K.urges, Array.isArray(obj.urges) ? obj.urges : []) && ok;
+    ok = write(K.meta, isObj(obj.meta) ? obj.meta : prev.meta) && ok;
     // rota is optional so older backups (pre-increment-4) never fail to import
-    write(K.rota, obj.rota && typeof obj.rota === 'object' ? obj.rota : defaultRota());
+    ok = write(K.rota, isObj(obj.rota) ? obj.rota : defaultRota()) && ok;
+    if (!ok) {
+      write(K.settings, prev.settings); write(K.logs, prev.logs);
+      write(K.relapses, prev.relapses); write(K.urges, prev.urges);
+      write(K.meta, prev.meta); write(K.rota, prev.rota);
+      return { ok: false, error: 'Import failed part-way (storage full?). Your previous data was restored.' };
+    }
     return { ok: true };
   }
 
   function wipeAll() {
     for (var k in K) localStorage.removeItem(K[k]);
+    MEM = {};
   }
 
-  global.RTI_STORE = {
+  var api = {
     SCHEMA: SCHEMA,
+    onWriteError: null, // app.js sets this; called (key, err) when a persist fails
     getSettings: getSettings, setSettings: setSettings, defaultSettings: defaultSettings,
     blankLog: blankLog, getLog: getLog, getLogs: getLogs, saveLog: saveLog,
     patchLog: patchLog, logsArray: logsArray, backfillClean: backfillClean,
@@ -228,4 +264,5 @@
     defaultRota: defaultRota, getRota: getRota, setRota: setRota,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };
+  global.RTI_STORE = api;
 })(typeof window !== 'undefined' ? window : this);
