@@ -66,14 +66,30 @@
   function online() {
     return typeof navigator === 'undefined' || navigator.onLine !== false;
   }
+  // GitHub's status codes, translated for the Settings status line
+  function httpError(status) {
+    if (status === 404) return new Error('GitHub said 404 — repo not found. Check the repo name (just the name, e.g. rti-data, no spaces) and that the token was granted access to it.');
+    if (status === 401) return new Error('GitHub said 401 — the token was rejected. Paste a fresh fine-grained token.');
+    if (status === 403) return new Error('GitHub said 403 — the token lacks permission. It needs Contents: Read and write on the data repo.');
+    return new Error('GitHub said ' + status);
+  }
   // GET path -> cb(err, null-when-absent | { sha, text })
   function getFile(path, cb) {
     var c = S.getSync();
     try {
       fetch(apiUrl(c, path) + '?ref=' + encodeURIComponent(c.branch || 'main'), { headers: headers(c) })
         .then(function (res) {
-          if (res.status === 404) { cb(null, null); return null; }
-          if (!res.ok) { cb(new Error('GitHub said ' + res.status)); return null; }
+          if (res.status === 404 && path !== 'backup.json') { cb(null, null); return null; }
+          if (res.status === 404) {
+            // absent backup.json on a valid repo is fine (first push) — but we
+            // can't tell "no file yet" from "repo name wrong" here; probe the
+            // repo itself so the owner gets the real story
+            fetch('https://api.github.com/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo), { headers: headers(c) })
+              .then(function (r2) { if (r2.ok) cb(null, null); else cb(httpError(404)); })
+              .catch(function () { cb(null, null); });
+            return null;
+          }
+          if (!res.ok) { cb(httpError(res.status)); return null; }
           return res.json().then(function (j) {
             cb(null, { sha: j.sha, text: b64decode(j.content) });
           });
@@ -89,7 +105,7 @@
     try {
       fetch(apiUrl(c, path), { method: 'PUT', headers: headers(c), body: JSON.stringify(body) })
         .then(function (res) {
-          if (!res.ok) { cb(new Error('GitHub said ' + res.status)); return null; }
+          if (!res.ok) { cb(httpError(res.status)); return null; }
           return res.json().then(function (j) { cb(null, { sha: j.content && j.content.sha }); });
         })
         .catch(function (err) { cb(err); });

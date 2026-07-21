@@ -2653,8 +2653,15 @@
     function bind(id, key) {
       var el = appEl.querySelector(id);
       if (el) el.addEventListener('change', function () {
-        var patch = {}; patch[key] = el.value.replace(/^\s+|\s+$/g, '');
-        if (key === 'token' && !patch.token) return; // empty field never erases a saved token
+        var v = el.value.replace(/^\s+|\s+$/g, '');
+        if (key === 'token' && !v) return; // empty field never erases a saved token
+        // GitHub usernames/repos can't contain spaces — a stray word here means
+        // 404s (seen live: "repo rti-data"). Warn loudly and don't save it.
+        if (key !== 'token' && /\s/.test(v)) {
+          toast('“' + v + '” can’t be right — no spaces allowed. Repo is just the name, e.g. rti-data.', 6000);
+          return;
+        }
+        var patch = {}; patch[key] = v;
         S.setSync(patch); toast('Sync setting saved.');
       });
     }
