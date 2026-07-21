@@ -1,9 +1,11 @@
 # Road to Immortal
 
 A personal, **offline-first** monk-mode discipline tracker — a single-user PWA.
-No backend, no accounts, no analytics, **no runtime network calls**. All data lives
-only on the device in `localStorage`. Built with vanilla HTML/CSS/JS — no framework,
-no bundler, **no build step**.
+No backend, no accounts, no analytics. All data lives on the device in
+`localStorage`; the **only** runtime network call is the **opt-in cloud sync**
+(Settings → Cloud sync, one endpoint: `api.github.com`) — with sync unconfigured the
+app makes zero network calls, exactly as before. Built with vanilla HTML/CSS/JS —
+no framework, no bundler, **no build step**.
 
 > Anchors confirmed: `startDate = 2026-06-08` (day 1) · `targetDate = 2027-10-20`
 > ("The Immortal", which lands exactly on day 500). Both editable in **Settings**.
@@ -62,7 +64,7 @@ npx --yes serve -l 8123 .
 
 **Re-run the engine self-test** after any change to `engine.js`/`config.js`:
 ```sh
-node tools/selftest.js     # expect: 233 passed, 0 failed
+node tools/selftest.js     # expect: 243 passed, 0 failed
 ```
 
 **Regenerate icons** (only if you change the art):
@@ -402,6 +404,41 @@ before the record grows. No new features — durability, correctness, speed. SW 
 surfacing, import rejection/rollback, relapse-wins, era-safe targets, day-anchored
 rankETA, oracle pairing incl. ties and `12k`, RRULE warning) —
 `node tools/selftest.js` → **233 passed, 0 failed**.
+
+## Increment 6 — The Bridge (opt-in GitHub sync: the ledger leaves the phone)
+
+The owner chose to end the phone-only era: the full export bundle now syncs to a
+**private** GitHub repo (`rti-data` — separate from this app repo, which stays free of
+personal data), readable by the owner's PC and by the Mentor agent. New `sync.js`
+(`RTI_SYNC`), a Settings card, SW → **v13**.
+
+**Honest boundaries (the design, in one breath)**
+- **Opt-in**: zero network until a token is pasted in Settings. Unconfigured = the old
+  fully-offline app, byte for byte.
+- **One endpoint**: `api.github.com` (GitHub Contents API), nothing else, ever.
+- **The phone is the only writer of `backup.json`.** If the cloud copy carries a sha
+  this device never wrote (fresh install, another device), sync **stops and asks** —
+  *Use cloud copy here* / *Overwrite cloud* — it never guesses. Restore runs through
+  increment 5's safe import (snapshot + rollback).
+- **The token stays on the device**: sync config lives in its own `rti_sync_v1` key,
+  deliberately **excluded from the export bundle**, so shared backups can't leak it.
+- **Auto-sync is change-driven**: a `bundleHash` (exportedAt excluded) is compared on
+  app open / network-return / app-hide / a 5-min tick, throttled to once a minute;
+  pushes only when the ledger actually changed. Failures degrade to a status line.
+- **Photos are pushed manually** (Settings button → `photos-journey.json`) — they're
+  big, and the tap also stamps the photo-backup nag.
+- The Mentor (increment 8) writes only under `mentor/`; the app only **reads**
+  `mentor/insights.json` (pulled quietly into `rti_mentor_v1`).
+
+**Setup (once, on the phone)**: github.com → Settings → Developer settings →
+**Fine-grained tokens** → access to the ONE private repo (`rti-data`), permission
+**Contents: Read and write** → paste into Settings → Cloud sync → *Sync now*.
+Enable 2FA on the GitHub account — it is now the ledger's privacy boundary.
+
+10 new self-test assertions (unicode-safe base64 round-trip incl. API line-wraps,
+stable/change-detecting hashes, `bundleHash` ignoring `exportedAt` churn while seeing
+real changes, unconfigured-by-default, token never in the export bundle, single-origin
+`apiUrl`) — `node tools/selftest.js` → **243 passed, 0 failed**.
 
 ## Open risks / TODOs
 

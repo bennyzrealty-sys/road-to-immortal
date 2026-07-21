@@ -2003,7 +2003,7 @@
       '<div class="chat-thread" id="or-thread">' + thread + '</div>' + chips +
       '<div class="chat-send"><input type="text" id="or-input" placeholder="Ask the Oracle…">' + mic +
         '<button class="btn sm gold" id="or-send" style="flex:0 0 auto">Send</button></div>' +
-      '<div class="tiny faint" style="margin-top:8px">On-device only — the Oracle reads your own ledger, and nothing leaves the room.</div>' +
+      '<div class="tiny faint" style="margin-top:8px">The Oracle reads your own ledger, on-device. (Mic input, where offered, uses the browser’s speech service.)</div>' +
     '</div>';
   }
   /* ---- the Sight: risk · survival · rank horizon · weekly prophecy ---- */
@@ -2338,6 +2338,79 @@
     };
   }
 
+  /* ---- SETTINGS · cloud sync card (increment 6 — The Bridge) ---- */
+  function syncCard() {
+    var sy = S.getSync(), on = window.RTI_SYNC && RTI_SYNC.configured(sy);
+    var statusLine = on
+      ? 'Last sync: ' + (sy.lastSyncISO ? new Date(sy.lastSyncISO).toLocaleString() : 'never') +
+        (sy.lastStatus ? ' · ' + esc(sy.lastStatus) : '')
+      : 'Not connected — the ledger still lives ONLY on this device.';
+    var foreign = sy.remoteForeign
+      ? '<div class="flag amber" style="margin:8px 0">The cloud holds a backup this device did not write (another device, or a restore). Choose:' +
+        '<div class="btn-grid" style="margin-top:8px"><button class="btn cyan sm" id="sy-restore2">Use cloud copy here</button>' +
+        '<button class="btn sm" id="sy-overwrite" style="color:#ffc2cf">Overwrite cloud with this device</button></div></div>'
+      : '';
+    return '<div class="card"><h3>Cloud sync — the ledger, off this phone</h3>' +
+      '<div class="tiny muted" style="margin-bottom:8px">' + statusLine + '</div>' + foreign +
+      '<label class="field"><span>GitHub username</span><input type="text" id="sy-owner" autocapitalize="none" value="' + esc(sy.owner || '') + '" placeholder="your-github-name"></label>' +
+      '<label class="field"><span>Private data repo</span><input type="text" id="sy-repo" autocapitalize="none" value="' + esc(sy.repo || 'rti-data') + '"></label>' +
+      '<label class="field"><span>Access token</span><input type="password" id="sy-token" autocomplete="off" value="" placeholder="' + (sy.token ? '••••••••  (saved — paste to replace)' : 'github_pat_…') + '"></label>' +
+      '<div class="check' + (sy.auto !== false ? ' on' : '') + '" id="sy-auto"><span class="box">' + (sy.auto !== false ? '✓' : '') + '</span><span class="txt">Auto-sync when the ledger changes (online only)</span></div>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn gold" id="sy-now">☁ Sync now</button><button class="btn cyan" id="sy-restore">⤓ Restore from cloud</button></div>' +
+      '<button class="btn ghost full sm" id="sy-photos" style="margin-top:8px">Push photo journey to cloud (manual — photos are big)</button>' +
+      (sy.token ? '<button class="btn ghost sm" id="sy-off" style="margin-top:8px;color:#ff8aa8">Disconnect (forget token on this device)</button>' : '') +
+      '<div class="tiny faint" style="margin-top:8px">Create the token on github.com → Settings → Developer settings → <b>Fine-grained tokens</b>: grant access to the ONE private repo above, permission <b>Contents: Read and write</b>, nothing else. The token is stored only on this device and is never included in exports. Sync talks to api.github.com and nowhere else.</div>' +
+    '</div>';
+  }
+  function wireSyncCard() {
+    function bind(id, key) {
+      var el = appEl.querySelector(id);
+      if (el) el.addEventListener('change', function () {
+        var patch = {}; patch[key] = el.value.replace(/^\s+|\s+$/g, '');
+        if (key === 'token' && !patch.token) return; // empty field never erases a saved token
+        S.setSync(patch); toast('Sync setting saved.');
+      });
+    }
+    bind('#sy-owner', 'owner'); bind('#sy-repo', 'repo'); bind('#sy-token', 'token');
+    var au = appEl.querySelector('#sy-auto');
+    if (au) au.onclick = function () { S.setSync({ auto: S.getSync().auto === false }); render(); };
+    function syncDone(verb) {
+      return function (err) {
+        if (err) toast('☁ ' + ((err && err.message) || 'Sync failed.'), 5000);
+        else toast('☁ ' + verb + '.');
+        render();
+      };
+    }
+    var now = appEl.querySelector('#sy-now');
+    if (now) now.onclick = function () {
+      if (!window.RTI_SYNC) return;
+      if (!RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
+      toast('Syncing…'); RTI_SYNC.pushBackup(syncDone('Synced'));
+    };
+    function doRestore() {
+      if (!window.RTI_SYNC || !RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
+      if (!confirm('Replace ALL data on this device with the cloud backup? Your current state is snapshotted first (safe import), but be sure.')) return;
+      toast('Fetching…'); RTI_SYNC.restoreFromCloud(syncDone('Restored from cloud'));
+    }
+    var rs = appEl.querySelector('#sy-restore'); if (rs) rs.onclick = doRestore;
+    var rs2 = appEl.querySelector('#sy-restore2'); if (rs2) rs2.onclick = doRestore;
+    var ow = appEl.querySelector('#sy-overwrite');
+    if (ow) ow.onclick = function () {
+      if (!confirm('Overwrite the CLOUD backup with this device’s data? The cloud copy will be replaced.')) return;
+      toast('Overwriting…'); RTI_SYNC.overwriteCloud(syncDone('Cloud overwritten'));
+    };
+    var ph = appEl.querySelector('#sy-photos');
+    if (ph) ph.onclick = function () {
+      if (!window.RTI_SYNC || !RTI_SYNC.configured()) { toast('Fill in username, repo and token first.'); return; }
+      toast('Pushing photos…'); RTI_SYNC.pushPhotos(syncDone('Photos pushed'));
+    };
+    var off = appEl.querySelector('#sy-off');
+    if (off) off.onclick = function () {
+      if (!confirm('Forget the sync token on this device? (The cloud copies stay in your repo.)')) return;
+      S.setSync({ token: '', lastStatus: null }); toast('Disconnected.'); render();
+    };
+  }
+
   /* ---- SETTINGS / BACKUP ---- */
   function screenSettings() {
     var s = S.getSettings(), meta = S.getMeta();
@@ -2366,7 +2439,9 @@
         '<label class="field"><span>Longitude</span><input type="number" inputmode="decimal" step="0.0001" id="set-lng" value="' + (s.longitude != null ? s.longitude : '') + '" placeholder="e.g. -0.1278"></label>' +
         '<button class="btn cyan" id="set-geo">📍 Use my location</button>' +
       '</div>' +
-      '<div class="card"><h3>The Oracle</h3><div class="check' + (s.oracleVoice ? ' on' : '') + '" id="set-ov"><span class="box">' + (s.oracleVoice ? '✓' : '') + '</span><span class="txt">Oracle voice — speak replies aloud</span></div></div>' +
+      '<div class="card"><h3>The Oracle</h3><div class="check' + (s.oracleVoice ? ' on' : '') + '" id="set-ov"><span class="box">' + (s.oracleVoice ? '✓' : '') + '</span><span class="txt">Oracle voice — speak replies aloud</span></div>' +
+        '<div class="tiny faint" style="margin-top:6px">The Oracle itself is fully on-device. Voice input, where offered, uses your browser’s speech service (which may be cloud-based).</div></div>' +
+      syncCard() +
       '<div class="card"><h3>Backup — your safety net</h3>' +
         '<div class="tiny muted" style="margin-bottom:10px">Last export: ' + (meta.lastExportISO || 'never') + '. 500 days of progress lives only on this device — export often.</div>' +
         '<div class="btn-grid"><button class="btn gold" id="do-export">⤓ Export JSON</button><button class="btn cyan" id="do-import">⤒ Import JSON</button></div>' +
@@ -2374,10 +2449,11 @@
       '</div>' +
       '<div class="card"><h3>Relapse</h3><button class="btn full" style="border-color:rgba(255,107,138,.4);color:#ffc2cf" data-go="relapse">Log a relapse (with compassion)</button></div>' +
       '<div class="card"><h3>App</h3><div class="tiny muted">Service worker: ' + swState + '</div>' +
-        '<div class="tiny faint" style="margin-top:6px">All data is local. No accounts, no network, no analytics.</div>' +
+        '<div class="tiny faint" style="margin-top:6px">All data lives on this device. No accounts, no analytics. The ONLY network call is the optional cloud sync above (api.github.com) — and only if you connect it.</div>' +
         '<button class="btn ghost sm" id="do-wipe" style="margin-top:10px;color:#ff8aa8">Erase all data on this device</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
+    wireSyncCard();
 
     function bindDate(id, key) { var el = appEl.querySelector(id); el.addEventListener('change', function () { if (el.value) { S.setSettings(mkPatch(key, el.value)); toast('Saved.'); } }); }
     bindDate('#set-start', 'startDate'); bindDate('#set-target', 'targetDate');
@@ -2526,6 +2602,17 @@
     if (now - lastWriteWarn > 60000) { lastWriteWarn = now; toast('⚠ Save FAILED — storage may be full. Export your backup NOW.', 6000); }
   };
   refreshPhotoCount();
+  // increment 6 — auto-sync: on open, when the network returns, when the app is
+  // backgrounded (the natural "I just logged something" moment), and on a slow
+  // tick. All quiet, throttled, and change-driven inside maybeAutoSync.
+  try {
+    if (window.RTI_SYNC) {
+      setTimeout(function () { RTI_SYNC.maybeAutoSync('boot'); }, 2000);
+      window.addEventListener('online', function () { RTI_SYNC.maybeAutoSync('online'); });
+      document.addEventListener('visibilitychange', function () { if (document.hidden) RTI_SYNC.maybeAutoSync('hide'); });
+      setInterval(function () { RTI_SYNC.maybeAutoSync('tick'); }, 5 * 60 * 1000);
+    }
+  } catch (e) {}
   render();
   scheduleMidnight();
   window.RTI = { render: render, state: state, engine: E, store: S };

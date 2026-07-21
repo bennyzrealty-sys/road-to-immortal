@@ -2,12 +2,13 @@
    Road to Immortal — Service Worker
    Caches the full app shell so the app opens with NO network.
    Bump CACHE on any file change to invalidate the old cache.
-   No runtime network calls are made by the app; this only serves the
-   local shell. User data never goes through here (it lives in
-   localStorage, never fetched).
+   The app's only runtime network call is the OPT-IN cloud sync
+   (api.github.com) — cross-origin, so it passes straight through the
+   fetch handler below untouched. The local shell is served from cache;
+   user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v12';
+var CACHE = 'rti-shell-v13';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -21,6 +22,7 @@ var SHELL = [
   './rota.js',
   './sanctum.js',
   './oracle.js',
+  './sync.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',

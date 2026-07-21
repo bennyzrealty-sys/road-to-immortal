@@ -20,7 +20,10 @@
     relapses: 'rti_relapses_v1',
     urges:    'rti_urges_v1',   // [{ ts: epochMs, date: 'YYYY-MM-DD' }]
     meta:     'rti_meta_v1',    // { lastSeenRankIndex, lastExportISO, prereg, ... }
-    rota:     'rti_rota_v1'     // { shifts: {date: 'CODE'}, codeMap: {CODE: kindId}, role }
+    rota:     'rti_rota_v1',    // { shifts: {date: 'CODE'}, codeMap: {CODE: kindId}, role }
+    sync:     'rti_sync_v1',    // cloud-sync config (incl. token) — DEVICE-LOCAL,
+                                //   deliberately NOT part of the export bundle
+    mentor:   'rti_mentor_v1'   // last pulled mentor/insights.json (device-local)
   };
   var SCHEMA = 1;
 
@@ -194,6 +197,38 @@
     return r;
   }
 
+  /* ---------------- Sync config (increment 6 — device-local) ---------------- */
+  function defaultSync() {
+    return {
+      token: '',            // fine-grained PAT, Contents RW on the ONE data repo
+      owner: '',            // GitHub username
+      repo: 'rti-data',     // the PRIVATE data repo
+      branch: 'main',
+      auto: true,           // push on open/hide/online when the ledger changed
+      lastSyncISO: null, lastStatus: null,
+      lastRemoteSha: null,  // sha of backup.json as LAST WRITTEN BY THIS DEVICE
+      lastPushedHash: null, // bundle hash at last push (change detection)
+      remoteForeign: false  // cloud copy differs from what we wrote — owner decides
+    };
+  }
+  function getSync() {
+    var r = read(K.sync, null);
+    if (!r) { r = defaultSync(); write(K.sync, r); }
+    var d = defaultSync(), out = {};
+    for (var k in d) out[k] = (r[k] === undefined ? d[k] : r[k]);
+    return out;
+  }
+  function setSync(patch) {
+    var r = getSync();
+    for (var k in patch) r[k] = patch[k];
+    write(K.sync, r);
+    return r;
+  }
+
+  /* ---------------- Mentor counsel (pulled from the cloud, read-only) ---------------- */
+  function getMentor() { return read(K.mentor, null); }
+  function setMentor(obj) { write(K.mentor, obj); return obj; }
+
   /* ---------------- Meta (app bookkeeping, not "truth") ---------------- */
   function getMeta() {
     return read(K.meta, { lastSeenRankIndex: -1, lastExportISO: null, prereg: '', preregLocked: false });
@@ -262,6 +297,8 @@
     getUrges: getUrges, bankUrge: bankUrge, urgesOnDate: urgesOnDate,
     getMeta: getMeta, setMeta: setMeta,
     defaultRota: defaultRota, getRota: getRota, setRota: setRota,
+    defaultSync: defaultSync, getSync: getSync, setSync: setSync,
+    getMentor: getMentor, setMentor: setMentor,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };
   global.RTI_STORE = api;

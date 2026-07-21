@@ -13,7 +13,7 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
@@ -657,6 +657,25 @@ var icsR = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260706\r\nRR
 var rrRes = R.parseICS(icsR);
 check('ICS RRULE imports the first occurrence', rrRes.entries.length + '|' + rrRes.entries[0].date, '1|2026-07-06');
 check('ICS RRULE raises a warning', rrRes.warnings.some(function (w) { return w.indexOf('RRULE') >= 0; }), true);
+
+/* =================== INCREMENT 6 — THE BRIDGE (sync, pure parts) =================== */
+var SY = global.RTI_SYNC;
+check('sync b64 round-trip (unicode survives)', SY.b64decode(SY.b64encode('चिः the ledger 🔥 12,000')), 'चिः the ledger 🔥 12,000');
+check('sync b64decode tolerates API line-wraps', SY.b64decode(SY.b64encode('abc').slice(0, 2) + '\n' + SY.b64encode('abc').slice(2)), 'abc');
+check('sync hash is stable', SY.hashStr('the same ledger'), SY.hashStr('the same ledger'));
+check('sync hash detects change', SY.hashStr('day 42 clean') === SY.hashStr('day 42 slipped'), false);
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+check('sync unconfigured by default (offline stays offline)', SY.configured(), false);
+check('sync config never enters the export bundle', 'sync' in S.exportBundle() || 'token' in S.exportBundle(), false);
+S.setSync({ token: 't', owner: 'o', repo: 'rti-data' });
+check('sync configured once token+owner+repo set', SY.configured(), true);
+check('sync apiUrl targets api.github.com only', SY.apiUrl(S.getSync(), 'backup.json'), 'https://api.github.com/repos/o/rti-data/contents/backup.json');
+// bundleHash ignores exportedAt (which regenerates every call) but sees real change
+var bh1 = SY.bundleHash(S.exportBundle()), bh2 = SY.bundleHash(S.exportBundle());
+check('sync bundleHash stable across exportedAt churn', bh1, bh2);
+S.saveLog('2026-06-10', Object.assign(S.blankLog('2026-06-10'), { clean: true }));
+check('sync bundleHash sees a real ledger change', SY.bundleHash(S.exportBundle()) === bh1, false);
+S.setSync({ token: '', lastStatus: null });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
