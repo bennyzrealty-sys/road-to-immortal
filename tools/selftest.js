@@ -735,5 +735,27 @@ check('goals survive import', imp7.ok && S.getGoals().goals[0].title, 'Career As
 check('old backups without goals still import', S.importBundle({ app: 'road-to-immortal', schema: 1, settings: S.defaultSettings(), logs: {} }).ok, true);
 check('missing goals imports as empty, not broken', S.getGoals().goals.length, 0);
 
+/* =================== INCREMENT 8 — THE MENTOR (deterministic analyzer) =================== */
+var MA = require('./mentor-analyze');
+check('mentor-analyze rejects a non-backup', !!MA.analyze({ bad: 1 }).error, true);
+// synthetic 30-day journey: one slip, urges clustered at the 22h danger hour
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var ma1 = 0; ma1 < 30; ma1++) {
+  var mad = U.addDays('2026-06-08', ma1);
+  S.saveLog(mad, Object.assign(S.blankLog(mad), { clean: ma1 !== 10, sleepHrs: 7, mood: 4, steps: 8000, breathingMin: 15 }));
+}
+S.bankUrge(new Date(2026, 5, 20, 22, 30).getTime(), '2026-06-20');
+S.bankUrge(new Date(2026, 5, 21, 22, 10).getTime(), '2026-06-21');
+S.bankUrge(new Date(2026, 5, 22, 14, 0).getTime(), '2026-06-22');
+var maBundle = S.exportBundle();
+var mx = MA.analyze(maBundle, '2026-07-07'); // day 30
+check('mentor-analyze: full record read', mx.day + '|' + mx.record.clean + '|' + mx.record.broken + '|' + mx.record.unlogged, '30|29|1|0');
+check('mentor-analyze: clean rate', mx.record.cleanRatePct, 97);
+check('mentor-analyze: urges counted', mx.record.urgesBanked, 3);
+check('mentor-analyze: REAL danger hour surfaces (22h × 2)', mx.dangerHours[0].hour + '|' + mx.dangerHours[0].urges, '22|2');
+check('mentor-analyze: steady sleep reads flat', mx.trends.sleepHrs.direction, 'flat');
+check('mentor-analyze: foresight rides along', !!mx.foresight.tonight && mx.foresight.week.answered, 7);
+check('mentor-analyze: meters + calibration present', !!mx.meters.today && !!mx.meters.calibration.chi, true);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

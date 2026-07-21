@@ -64,7 +64,7 @@ npx --yes serve -l 8123 .
 
 **Re-run the engine self-test** after any change to `engine.js`/`config.js`:
 ```sh
-node tools/selftest.js     # expect: 262 passed, 0 failed
+node tools/selftest.js     # expect: 270 passed, 0 failed
 ```
 
 **Regenerate icons** (only if you change the art):
@@ -473,6 +473,35 @@ adherence + combined progress, no-ETA-until-a-milestone-falls, overdue detection
 clearing, agenda integration incl. done-state, the goalStep trial, export/import
 round-trip incl. legacy backups without goals) — `node tools/selftest.js` →
 **262 passed, 0 failed**.
+
+## Increment 8 — The Mentor (agentic monitoring · scheduled counsel)
+
+The journey now has a watcher. A scheduled agent reads the synced ledger, computes
+honest metrics, reasons over them, and leaves counsel the app renders. SW → **v15**.
+
+- **`tools/mentor-analyze.js`** — the deterministic layer (no personal data in this
+  public repo; it only computes). Loads a `backup.json`, reuses the real engine the
+  same way `selftest.js` does, and emits metrics JSON: full record (clean/broken/
+  unlogged, clean rate, streak, shields), **real danger hours from urge timestamps**,
+  7-vs-7-day trends (mood/sleep/steps/breath), nutrition adherence + protein rate,
+  **meter calibration notes** (pegged/starved counts → `maxPerWindow` suggestions),
+  per-ambition progress + ETA, tonight's risk forecast, the weekly prophecy.
+  CLI: `node tools/mentor-analyze.js backup.json [asOf]` · also `require()`-able.
+- **Scheduled routine `rti-mentor`** (Claude scheduled task, daily 07:34): pulls
+  `rti-data`, runs the analyzer, writes `mentor/insights.json` (strict schema:
+  headline · weeklyFocus · wins · warnings · suggestions · goalNudges) + a
+  `mentor/journey-report.md` (brief daily; **Sunday deep-dive**), commits.
+  Writes ONLY under `mentor/`; exits quietly while no backup has been pushed yet.
+  Runs while the Claude desktop app is open (missed runs fire on next launch).
+- **The Mentor screen** (app): renders the pulled counsel with a freshness stamp
+  ("counsel from N days ago", stale warning at 8+), every section optional, and the
+  standing caveat — *association, not fate; the Mentor proposes, you decide*. A
+  **Today teaser** appears when unseen counsel arrives (sha-tracked) and clears on
+  reading. Reached from Today (🧙) — explains the sync prerequisite when unconfigured.
+
+8 new self-test assertions (analyzer rejects non-backups; full-record read; clean
+rate; urge counting; the real danger hour surfacing; flat-trend detection; foresight
+and calibration presence) — `node tools/selftest.js` → **270 passed, 0 failed**.
 
 ## Open risks / TODOs
 

@@ -600,6 +600,17 @@
       var ud = U.addDays(s.startDate, ui), lg = allLogs[ud];
       if (!relSet[ud] && !(lg && lg.clean != null)) unloggedDays++;
     }
+    // increment 8 — unread Mentor counsel gets a quiet teaser
+    var mentorBanner = '';
+    try {
+      var mm2 = S.getMentor();
+      if (mm2 && mm2.data && mm2.sha && meta.lastMentorSeenSha !== mm2.sha) {
+        mentorBanner = '<div class="card" style="border-color:rgba(154,107,255,.35);background:rgba(154,107,255,.08)">' +
+          '<div class="row"><div class="grow"><b>🧙 The Mentor has new counsel</b>' +
+          (mm2.data.headline ? '<div class="tiny muted">' + esc(String(mm2.data.headline)) + '</div>' : '') + '</div>' +
+          '<button class="btn sm gold" data-go="mentor">Read</button></div></div>';
+      }
+    } catch (eMB) {}
     // increment 7 — an overdue milestone deserves a banner, not silence
     var goalBanner = '';
     try {
@@ -617,7 +628,7 @@
         '<button class="btn sm cyan" data-go="settings">Catch up</button></div></div>' : '';
 
     var html = '<div class="screen">' +
-      header('today') + backupBanner + photoBanner + goalBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
+      header('today') + backupBanner + photoBanner + mentorBanner + goalBanner + catchupBanner + coachCard(snap) + trialCard(snap) +
       '<div class="card today-hero">' +
         '<div class="day-num">Day ' + snap.day + ' · ' + snap.progress.pct + '% to Immortal · ' + snap.progress.daysToImmortal + ' days left</div>' +
         '<div class="rank-badge" data-go="road"><span class="nm">' + esc(snap.rank.current ? snap.rank.current.name : 'Before the Dawn') + '</span></div>' +
@@ -643,7 +654,7 @@
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
       '<button class="btn ghost full" data-go="goals" style="margin-top:10px">🎯 The Ascent — ambitions · roadmap · daily tasks</button>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
-      '<button class="btn ghost full" data-go="sanctum" style="margin-top:10px">🕉 Sanctum — breath · mala · cosmos</button>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="sanctum">🕉 Sanctum</button><button class="btn ghost" data-go="mentor">🧙 The Mentor</button></div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); animateBars(appEl); wireCoach(); wireTrial();
 
@@ -2573,6 +2584,47 @@
     });
   }
 
+  /* ---- THE MENTOR — counsel pulled from the cloud (increment 8) ---- */
+  // renders mentor/insights.json (written by the scheduled Mentor agent,
+  // pulled by sync.js). Every field is optional — render what exists.
+  function mentorList(title, items, cls) {
+    if (!items || !items.length) return '';
+    var rows = items.map(function (x) { return '<div class="flag ' + cls + '" style="margin:6px 0">' + esc(String(x)) + '</div>'; }).join('');
+    return '<h3 style="margin-top:12px">' + esc(title) + '</h3>' + rows;
+  }
+  function screenMentor() {
+    var m = S.getMentor(), sy = S.getSync();
+    var body;
+    if (!m || !m.data) {
+      var hint = (window.RTI_SYNC && RTI_SYNC.configured(sy))
+        ? 'Sync is connected — counsel appears here after the Mentor’s next scheduled reading of your ledger.'
+        : 'Connect <b>Cloud sync</b> in Settings first: the Mentor reads the synced ledger and leaves its counsel here.';
+      body = '<div class="card"><h3>🧙 The Mentor</h3>' +
+        '<div class="tiny muted" style="margin:8px 0">A scheduled counsel — an agent that reads your synced ledger (streak, urges, adherence, ambitions), reasons over it, and writes back what it sees: wins, warnings, one focus for the week. It writes only counsel; it never touches your data.</div>' +
+        '<div class="flag info">' + hint + '</div></div>';
+    } else {
+      var d0 = m.data;
+      var freshness = '';
+      try {
+        var fdays = U.daysBetween((d0.generatedAt || m.fetchedAt || '').slice(0, 10), today());
+        freshness = isFinite(fdays) ? (fdays <= 0 ? 'counsel from today' : 'counsel from ' + fdays + ' day' + (fdays === 1 ? '' : 's') + ' ago') : '';
+      } catch (e) {}
+      body = '<div class="card"><h3>🧙 The Mentor</h3>' +
+        (freshness ? '<div class="tiny faint">' + esc(freshness) + (fdays >= 8 ? ' — stale; open the app online to pull fresh counsel' : '') + '</div>' : '') +
+        (d0.headline ? '<div class="codex-quote" style="font-size:17px;margin-top:8px">' + esc(String(d0.headline)) + '</div>' : '') +
+        (d0.weeklyFocus ? '<div class="flag info" style="margin-top:10px"><b>This week’s focus:</b> ' + esc(String(d0.weeklyFocus)) + '</div>' : '') +
+        mentorList('Wins', d0.wins, 'info') +
+        mentorList('Warnings', d0.warnings, 'amber') +
+        mentorList('Counsel', d0.suggestions, 'info') +
+        mentorList('On your ambitions', d0.goalNudges, 'info') +
+        '<div class="tiny faint" style="margin-top:12px">Read from your own ledger — association, not fate. The Mentor proposes; you decide.</div>' +
+      '</div>';
+    }
+    appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Mentor') + body + '</div>'));
+    // mark this counsel as seen (clears the Today teaser)
+    try { if (m && m.sha) S.setMeta({ lastMentorSeenSha: m.sha }); } catch (e) {}
+  }
+
   /* ---- SETTINGS · cloud sync card (increment 6 — The Bridge) ---- */
   function syncCard() {
     var sy = S.getSync(), on = window.RTI_SYNC && RTI_SYNC.configured(sy);
@@ -2761,7 +2813,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals, mentor: screenMentor };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -2771,7 +2823,7 @@
   ];
   function renderTabs() {
     tabsEl.innerHTML = TABS.map(function (t) {
-      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum' || state.tab === 'goals'));
+      var on = state.tab === t.id || (t.id === 'today' && (state.tab === 'road' || state.tab === 'settings' || state.tab === 'ascension' || state.tab === 'photos' || state.tab === 'power' || state.tab === 'signals' || state.tab === 'movement' || state.tab === 'rota' || state.tab === 'oracle' || state.tab === 'sanctum' || state.tab === 'goals' || state.tab === 'mentor'));
       return '<button data-tab="' + t.id + '" class="' + (on ? 'on' : '') + '"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
     }).join('');
     tabsEl.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { state.tab = b.getAttribute('data-tab'); window.scrollTo(0, 0); render(); }; });
