@@ -896,5 +896,69 @@ G.addMilestone(hg.id, { title: 'a' }); G.addMilestone(hg.id, { title: 'b' });
 G.toggleMilestone(hg.id, G.byId(hg.id).milestones[0].id, '2026-07-22');
 check('hand-completed milestones still set the pace', G.progress(G.byId(hg.id), '2026-07-22').eta.days, 2);
 
+/* =================== INCREMENT 11 — BACKGROUND STEPS (phone counter → stepsAuto) =================== */
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+var SY = global.RTI_SYNC;
+// --- effectiveSteps: two sources, larger wins, neither overwritten
+check('effectiveSteps: auto floor wins', E.effectiveSteps({ steps: 0, stepsAuto: 8000 }), 8000);
+check('effectiveSteps: manual entry can overrule upward', E.effectiveSteps({ steps: 9000, stepsAuto: 8000 }), 9000);
+check('effectiveSteps: legacy logs (no stepsAuto) unchanged', E.effectiveSteps({ steps: 4321 }), 4321);
+check('effectiveSteps: null-safe', E.effectiveSteps(null) + '|' + E.effectiveSteps({}), '0|0');
+// --- parseStepsFile: both shapes, garbage rejected
+check('parseStepsFile: days map shape', SY.parseStepsFile({ days: { '2026-07-22': 8432, '2026-07-21': 12001 } })['2026-07-21'], 12001);
+check('parseStepsFile: single-day shape', SY.parseStepsFile({ date: '2026-07-22', steps: 500 })['2026-07-22'], 500);
+check('parseStepsFile: rounds float pushes', SY.parseStepsFile({ date: '2026-07-22', steps: 8432.7 })['2026-07-22'], 8433);
+check('parseStepsFile: garbage dates/values dropped', SY.parseStepsFile({ days: { 'not-a-date': 5, '2026-07-22': -3, '2026-07-23': 9999999 } }), null);
+check('parseStepsFile: junk objects -> null', SY.parseStepsFile(null) + '|' + SY.parseStepsFile({}) + '|' + SY.parseStepsFile({ days: [1, 2] }), 'null|null|null');
+check('parseStepsFile: impossible calendar days rejected', SY.parseStepsFile({ days: { '2026-99-99': 5, '2026-02-30': 5 } }), null);
+check('parseStepsFile: coercible non-numbers rejected (null/empty/bool/array)',
+  SY.parseStepsFile({ days: { '2026-07-20': null, '2026-07-19': '', '2026-07-18': true, '2026-07-17': [5] } }), null);
+check('parseStepsFile: digit strings accepted', SY.parseStepsFile({ date: '2026-07-20', steps: '7000' })['2026-07-20'], 7000);
+// --- applyAutoSteps: writes ONLY stepsAuto, skips future + unchanged
+S.patchLog('2026-07-22', { steps: 2000, clean: true });
+var applied11 = SY.applyAutoSteps({ '2026-07-22': 8432, '2026-07-23': 4000 }, '2026-07-22');
+check('applyAutoSteps: applies today, skips the future (clock skew)', applied11, 1);
+check('applyAutoSteps: manual steps and answers untouched', S.getLog('2026-07-22').steps + '|' + S.getLog('2026-07-22').clean + '|' + S.getLog('2026-07-22').stepsAuto, '2000|true|8432');
+check('applyAutoSteps: unchanged value is a no-op', SY.applyAutoSteps({ '2026-07-22': 8432 }, '2026-07-22'), 0);
+check('applyAutoSteps: ancient dates ignored — no phantom log rows', (function () {
+  var before = Object.keys(S.getLogs()).length;
+  var n = SY.applyAutoSteps({ '2020-01-01': 5000 }, '2026-07-22');
+  return n + '|' + (Object.keys(S.getLogs()).length - before);
+})(), '0|0');
+// --- the counter feeds everything downstream
+// the REAL trial path: find a steps-metric trial day, meet it with the
+// counter alone (manual steps stay 0), assert through dailyTrial itself
+(function () {
+  var found = null, need = 0;
+  for (var i = 0; i < 30 && !found; i++) {
+    var dd = U.addDays('2026-08-01', i), tr = E.dailyTrial(st, dd).trial;
+    if (tr.auto && tr.metric === 'steps') { found = dd; need = tr.need; }
+  }
+  if (!found) { check('a steps trial exists within the scan window', false, true); return; }
+  var one = {}; one[found] = need;
+  SY.applyAutoSteps(one, found);
+  check('dailyTrial met by the counter alone (manual steps 0)',
+    S.getLog(found).steps + '|' + E.dailyTrial(st, found).done, '0|true');
+})();
+check('weeklyTotals reads the effective total', E.weeklyTotals(st, '2026-07-22').steps >= 8432, true);
+var mv11 = E.movementSummary(st, '2026-07-22');
+check('movementSummary: effective + both sources exposed', mv11.steps + '|' + mv11.manual + '|' + mv11.auto, '8432|2000|8432');
+// --- stepsAuto rides the export/backup like any log field
+var b11 = S.exportBundle();
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+check('stepsAuto survives export/import', S.importBundle(b11).ok && S.getLog('2026-07-22').stepsAuto, 8432);
+check('config: autoMaxSteps + autoStepsMaxAgeDays tunables exist',
+  (global.RTI_CONFIG.movement.autoMaxSteps > 0) + '|' + (global.RTI_CONFIG.movement.autoStepsMaxAgeDays > 0), 'true|true');
+// --- the Mentor's counsel sees counter-only days (it reads the same bundle)
+(function () {
+  for (var i = 0; i < 14; i++) { // steady counter-only fortnight, zero manual entries
+    var dd = U.addDays('2026-07-22', -i), o = {}; o[dd] = 9000;
+    SY.applyAutoSteps(o, '2026-07-22');
+  }
+  var mx11 = MA.analyze(S.exportBundle(), '2026-07-22');
+  check('mentor-analyze: counter-only days feed the steps trend',
+    mx11.trends.steps.last7 + '|' + mx11.trends.steps.direction, '9000|flat');
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -148,7 +148,9 @@ function analyze(bundle, asOf) {
       mood: trendOf(function (l) { return l.mood; }),
       // sleep outside 0-24h is a typo (seen live: "389") — ignore, don't average it
       sleepHrs: trendOf(function (l) { return (l.sleepHrs != null && +l.sleepHrs >= 0 && +l.sleepHrs <= 24) ? l.sleepHrs : null; }),
-      steps: trendOf(function (l) { return l.steps > 0 ? l.steps : null; }),
+      // effective total (increment 11): counter-only days must not read as
+      // "unlogged" the moment the phone counter becomes the primary source
+      steps: trendOf(function (l) { var v = E.effectiveSteps ? E.effectiveSteps(l) : (+l.steps || 0); return v > 0 ? v : null; }),
       breathingMin: trendOf(function (l) { return l.breathingMin > 0 ? l.breathingMin : null; })
     },
     nutrition: {

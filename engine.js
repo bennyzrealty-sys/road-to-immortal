@@ -231,7 +231,7 @@
       var adh = nutritionAdherence(log);
       var sleepOk = (log.sleepHrs != null && isFinite(+log.sleepHrs) && +log.sleepHrs >= CFG.sleepGoalHrs);
       var cardioDone = log.cardio && (log.cardio.minutes == null || num(log.cardio.minutes) > 0);
-      vitRaw += num(log.steps) / 1000 * mc.vitality.perThousandSteps
+      vitRaw += effectiveSteps(log) / 1000 * mc.vitality.perThousandSteps
               + (log.workout ? mc.vitality.workoutDone : 0)
               + (cardioDone ? mc.vitality.cardioDone : 0)
               + (sleepOk ? mc.vitality.sleep7plus : 0)
@@ -288,7 +288,7 @@
       var date = U.addDays(asOf, -i);
       if (U.daysBetween(settings.startDate, date) < 0) continue;
       var log = S.getLog(date);
-      t.steps += num(log.steps);
+      t.steps += effectiveSteps(log);
       t.kcalBurned += num(log.kcalBurned);
       t.meditationMin += num(log.meditationMin);
       t.breathingMin += num(log.breathingMin);
@@ -397,7 +397,7 @@
     var log = S.getLog(asOf), n = log.nutrition || {};
     var phase = coachPhase(hour), pid = phase.id, curMeal = mealNudge(hour);
     var allTargets = allTargetsDone(log);
-    var moved = num(log.steps) > 0 || !!log.workout || (log.cardio && (log.cardio.minutes == null || num(log.cardio.minutes) > 0));
+    var moved = effectiveSteps(log) > 0 || !!log.workout || (log.cardio && (log.cardio.minutes == null || num(log.cardio.minutes) > 0));
     var hasType = !!n.dayType, hasPlan = !!n.templateId;
     var mealLabel = {}; CFG.nutrition.mealOrder.forEach(function (mo) { mealLabel[mo.key] = mo.label; });
 
@@ -531,7 +531,7 @@
   }
   function trialMet(trial, log, settings) {        // pure; reads only
     switch (trial.metric) {
-      case 'steps':         return num(log.steps) >= trial.need;
+      case 'steps':         return effectiveSteps(log) >= trial.need;
       case 'breathingMin':  return num(log.breathingMin) >= trial.need;
       case 'meditationMin': return num(log.meditationMin) >= trial.need;
       case 'cardioMin':     return !!(log.cardio && num(log.cardio.minutes) >= trial.need);
@@ -563,6 +563,12 @@
   }
 
   /* ---------- Movement: steps → distance → weight-aware calories (pure) ---------- */
+  // The day's step total from TWO honest sources that never overwrite each
+  // other: log.steps (the owner's hand-entered/live-walk claim) and
+  // log.stepsAuto (the phone's hardware counter, delivered by pullSteps —
+  // increment 11). The larger wins: the hardware counter is an all-day floor,
+  // and a live-walk logged on top can only raise the manual side.
+  function effectiveSteps(log) { return Math.max(num(log && log.steps), num(log && log.stepsAuto)); }
   function strideMeters(heightCm) {
     var h = (heightCm != null && +heightCm > 0) ? +heightCm : CFG.movement.defaultHeightCm;
     return h * CFG.movement.strideFactor / 100;
@@ -586,10 +592,11 @@
     return caloriesForSteps(steps, weightKg, heightCm);
   }
   function movementSummary(settings, asOf) {
-    var log = S.getLog(asOf), steps = num(log.steps), goal = CFG.movement.stepGoal;
+    var log = S.getLog(asOf), steps = effectiveSteps(log), goal = CFG.movement.stepGoal;
     return {
       steps: steps, distanceKm: U.round(distanceKm(steps, settings.heightCm), 2),
       kcal: Math.round(caloriesForSteps(steps, settings.currentWeightKg, settings.heightCm)),
+      manual: num(log.steps), auto: num(log.stepsAuto), // shown separately on Movement
       goal: goal, pct: U.clamp(steps / goal * 100, 0, 100)
     };
   }
@@ -833,7 +840,7 @@
       if (dailyTrial(settings, date).done) trialsWon++;
       var allT = allTargetsDone(log);
       var score = (st === 'clean' ? 2 : 0) + (allT ? 1 : 0)
-                + (adh.proteinHit ? 1 : 0) + (num(log.steps) >= 10000 ? 1 : 0);
+                + (adh.proteinHit ? 1 : 0) + (effectiveSteps(log) >= 10000 ? 1 : 0);
       if (score > 0 && score >= bestScore) { bestScore = score; bestDate = date; } // ties -> latest
     }
     var cs = chiSeries(settings, asOf), chiEarned = 0;
@@ -879,6 +886,7 @@
     stageFor: stageFor, performanceSummary: performanceSummary,
     trialIndexFor: trialIndexFor, dailyTrial: dailyTrial, trialStanding: trialStanding,
     shareCardData: shareCardData,
+    effectiveSteps: effectiveSteps,
     strideMeters: strideMeters, distanceKm: distanceKm, metForCadence: metForCadence,
     caloriesForSteps: caloriesForSteps, caloriesForSession: caloriesForSession,
     movementSummary: movementSummary, createStepDetector: createStepDetector,

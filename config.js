@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v18 · Increment 10',
+    appVersion: 'v19 · Increment 11',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -492,7 +492,13 @@
         { upTo: 140, met: 5.0 }, { upTo: 999, met: 7.0 }
       ],
       // live-walk accelerometer peak-detector tunables (magnitude in m/s²)
-      sensor: { threshold: 11.2, reArmFactor: 0.93, minStepMs: 270, smoothing: 0.4 }
+      sensor: { threshold: 11.2, reArmFactor: 0.93, minStepMs: 270, smoothing: 0.4 },
+      // background steps (increment 11): a steps.json day total above this is
+      // rejected as garbage (never clamped — clamping would fabricate a fake
+      // 100k day); days older than autoStepsMaxAgeDays are ignored so one bad
+      // push can't seed years of phantom log rows
+      autoMaxSteps: 100000,
+      autoStepsMaxAgeDays: 60
     },
 
     /* ================= QUOTES & CODEX =================

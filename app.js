@@ -567,7 +567,7 @@
   /* =================== DAILY TRIAL (Today) =================== */
   function autoHave(t, log) {
     switch (t.metric) {
-      case 'steps':         return (+log.steps || 0).toLocaleString();
+      case 'steps':         return E.effectiveSteps(log).toLocaleString();
       case 'breathingMin':  return (+log.breathingMin || 0);
       case 'meditationMin': return (+log.meditationMin || 0);
       case 'cardioMin':     return (log.cardio && +log.cardio.minutes) || 0;
@@ -839,7 +839,9 @@
       chiBurst(delta, el); render(); return;
     }
     if (q === 'med') { S.patchLog(d, { meditationMin: (log.meditationMin || 0) + 5 }); toast('+5 meditation'); render(); return; }
-    if (q === 'steps') { S.patchLog(d, { steps: (log.steps || 0) + 1000 }); toast('+1000 steps'); render(); return; }
+    // +1k builds on the EFFECTIVE total (increment 11): with the phone counter
+    // at 8,000 and manual at 0, the tap must yield 9,000 — not an invisible 1,000
+    if (q === 'steps') { S.patchLog(d, { steps: E.effectiveSteps(log) + 1000 }); toast('+1000 steps'); render(); return; }
     if (q === 'workout') { S.patchLog(d, { workout: log.workout ? null : { type: 'Workout', notes: '' } }); render(); return; }
     if (q === 'fulllog') { state.tab = 'log'; render(); return; }
   }
@@ -951,7 +953,7 @@
       var ws = 0, ms = 0, bs = 0;
       for (var dd = 0; dd < 7; dd++) {
         var dt = U.addDays(end, -(w * 7 + dd));
-        var lg = S.getLog(dt); ws += (+lg.steps) || 0; ms += (+lg.meditationMin) || 0; bs += (+lg.breathingMin) || 0;
+        var lg = S.getLog(dt); ws += E.effectiveSteps(lg); ms += (+lg.meditationMin) || 0; bs += (+lg.breathingMin) || 0;
       }
       var lbl = 'w' + (6 - w);
       stepsByWeek.push({ label: lbl, value: Math.round(ws / 1000) });
@@ -1606,7 +1608,7 @@
     var dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     var stepsWk = [], distWk = [];
     for (var i = 6; i >= 0; i--) {
-      var dt = U.addDays(d, -i), lg = S.getLog(dt), stp = (+lg.steps || 0), lbl = dow[U.fromISO(dt).getDay()];
+      var dt = U.addDays(d, -i), lg = S.getLog(dt), stp = E.effectiveSteps(lg), lbl = dow[U.fromISO(dt).getDay()];
       stepsWk.push({ label: lbl, value: Math.round(stp / 1000) });
       distWk.push({ label: lbl, value: +E.distanceKm(stp, s.heightCm).toFixed(1) });
     }
@@ -1618,11 +1620,21 @@
           '<div><b>' + mv.distanceKm.toFixed(2) + '</b><span>km</span></div>' +
           '<div><b>' + mv.kcal + '</b><span>kcal (est)</span></div>' +
           '<div><b>' + Math.round(mv.pct) + '%</b><span>of ' + (mv.goal / 1000) + 'k goal</span></div></div>' +
+        // increment 11 — the background counter's contribution, named honestly
+        (mv.auto > 0 ? '<div class="tiny muted" style="margin-top:10px">📟 Phone counter: <b>' + mv.auto.toLocaleString() + '</b> today (auto' +
+          (function () { try {
+            var ls = S.getSync().lastStepsISO; if (!ls) return '';
+            var lt = new Date(ls); // explicit HH:MM — toLocaleTimeString slices break in 12h locales
+            return ' · updated ' + ('0' + lt.getHours()).slice(-2) + ':' + ('0' + lt.getMinutes()).slice(-2);
+          } catch (eLS) { return ''; } })() +
+          ')' + (mv.manual > mv.auto ? ' · your entry <b>' + mv.manual.toLocaleString() + '</b> leads' : '') + '</div>' : '') +
         (noBody ? '<div class="flag info" style="margin-top:12px">Set your <b>height</b> &amp; <b>weight</b> in Settings for accurate distance &amp; calories. <button class="btn ghost sm" data-go="settings" style="margin-left:6px">Open</button></div>' : '') +
       '</div>' +
       '<div class="card"><h3>Set today’s steps</h3>' +
-        '<div class="tiny muted" style="margin-bottom:8px">Read your all-day total off your phone’s step counter and enter it — distance &amp; calories update from your height &amp; weight. (A website can’t read the step sensor in the background; that total lives in your native counter.)</div>' +
-        '<label class="field"><span>Steps today</span><input type="number" inputmode="numeric" id="mv-steps" value="' + (mv.steps || '') + '"></label>' +
+        '<div class="tiny muted" style="margin-bottom:8px">' + (mv.auto > 0
+          ? 'Your phone’s counter is feeding steps automatically. Enter a number here only to overrule it upward — the day counts whichever source is larger.'
+          : 'Read your all-day total off your phone’s step counter and enter it — distance &amp; calories update from your height &amp; weight. (A website can’t read the step sensor in the background — connect your phone counter via the automation recipe in your data repo, or type the total here.)') + '</div>' +
+        '<label class="field"><span>Steps today (your entry)</span><input type="number" inputmode="numeric" id="mv-steps" value="' + (mv.manual || '') + '"></label>' +
         '<div class="seg"><button data-mv="1000">+1,000</button><button data-mv="500">+500</button><button data-mv="-500">−500</button><button data-mv="reset">reset</button></div>' +
       '</div>' +
       '<div class="card"><h3>Live walk</h3>' +
@@ -1636,9 +1648,18 @@
     inp.addEventListener('change', function () { var v = inp.value === '' ? 0 : Math.max(0, Math.round(+inp.value)); S.patchLog(d, { steps: v }); render(); });
     appEl.querySelectorAll('[data-mv]').forEach(function (b) {
       b.onclick = function () {
-        var a = b.getAttribute('data-mv'), cur = +S.getLog(d).steps || 0;
-        var nx = a === 'reset' ? 0 : Math.max(0, cur + (+a));
-        S.patchLog(d, { steps: nx }); render();
+        // POSITIVE steppers build on the EFFECTIVE total (visible result);
+        // NEGATIVE ones touch only YOUR entry — baking the counter's number
+        // into log.steps on a decrement would poison later downward
+        // corrections from steps.json. Reset clears only your entry too.
+        var a = b.getAttribute('data-mv'), lgMv = S.getLog(d), nx;
+        if (a === 'reset') nx = 0;
+        else if (+a > 0) nx = E.effectiveSteps(lgMv) + (+a);
+        else nx = Math.max(0, (+lgMv.steps || 0) + (+a));
+        S.patchLog(d, { steps: nx });
+        var eff = E.effectiveSteps(S.getLog(d));
+        if (eff > nx) toast('Your entry: ' + nx.toLocaleString() + ' — the phone counter holds today at ' + eff.toLocaleString() + '.');
+        render();
       };
     });
     appEl.querySelector('#mv-walk').onclick = openWalkSession;
@@ -1681,7 +1702,10 @@
         cleanup();
         if (n > 0) {
           var log = S.getLog(today()), addKcal = Math.round(E.caloriesForSession(n, min, s.currentWeightKg, s.heightCm));
-          S.patchLog(today(), { steps: (+log.steps || 0) + n, kcalBurned: (+log.kcalBurned || 0) + addKcal, cardio: { type: 'walk', minutes: Math.round(min), notes: 'live walk' } });
+          // the walk lands on the EFFECTIVE total (increment 11): with the
+          // phone counter at 8,000, a 1,500-step walk must show as 9,500 —
+          // and if the counter also caught the walk, max() absorbs the overlap
+          S.patchLog(today(), { steps: E.effectiveSteps(log) + n, kcalBurned: (+log.kcalBurned || 0) + addKcal, cardio: { type: 'walk', minutes: Math.round(min), notes: 'live walk' } });
           toast('Walk logged · ' + n + ' steps · ' + E.distanceKm(n, s.heightCm).toFixed(2) + ' km');
         }
         render();
@@ -2176,7 +2200,14 @@
     var d = date || today(), log = S.getLog(d);
     if (act === 'steps') {                            // steps arrive as a daily TOTAL — set, not add
       var stp = Math.max(0, Math.round(+payload || 0));
-      S.patchLog(d, { steps: stp }); toast('Steps set to ' + stp.toLocaleString() + '.'); render(); return;
+      S.patchLog(d, { steps: stp });
+      // never claim a total the ledger won't show: the phone counter can hold
+      // a higher floor than the dictated number (increment 11)
+      var effO = E.effectiveSteps(S.getLog(d));
+      toast(effO > stp
+        ? 'Your entry set to ' + stp.toLocaleString() + ' — the phone counter holds today at ' + effO.toLocaleString() + '.'
+        : 'Steps set to ' + stp.toLocaleString() + '.');
+      render(); return;
     }
     if (act === 'med') {                              // additive, like quickAction
       var mm = Math.max(0, Math.round(+payload || 0));
@@ -3233,7 +3264,7 @@
       // campaign, redraw the screens that announce them (same session, not
       // "next time you happen to navigate")
       RTI_SYNC.onPulled = function () {
-        if (state.tab === 'today' || state.tab === 'goals' || state.tab === 'mentor') render();
+        if (state.tab === 'today' || state.tab === 'goals' || state.tab === 'mentor' || state.tab === 'movement') render();
       };
     }
   } catch (e) {}

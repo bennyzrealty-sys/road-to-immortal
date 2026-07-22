@@ -124,6 +124,10 @@
     if (!online()) { if (cb) cb(new Error('Offline — will sync when the network returns.')); return; }
     var bundle = S.exportBundle();
     var json = JSON.stringify(bundle, null, 1);
+    // hash the SNAPSHOT now, not the live bundle later: pullSteps can mutate
+    // the shared logs object mid-flight, and hashing after the round-trips
+    // would mark those changes as already-pushed (silently un-backed-up)
+    var pushedHash = bundleHash(bundle);
     getFile('backup.json', function (err, remote) {
       if (err) { fail(err); if (cb) cb(err); return; }
       if (remote && c.lastRemoteSha !== remote.sha) {
@@ -135,7 +139,7 @@
         if (err2) { fail(err2); if (cb) cb(err2); return; }
         S.setSync({
           lastSyncISO: new Date().toISOString(), lastStatus: 'ok',
-          lastRemoteSha: out.sha || null, lastPushedHash: bundleHash(bundle), remoteForeign: false
+          lastRemoteSha: out.sha || null, lastPushedHash: pushedHash, remoteForeign: false
         });
         if (cb) cb(null, { pushed: true });
       });
@@ -192,6 +196,79 @@
       if (cb) cb(null, obj);
     });
   }
+  /* ---------- background steps (increment 11) ----------
+     The phone's hardware step counter runs 24/7 with the screen off, but no
+     web app can read it directly — so the owner's automation (MacroDroid /
+     Tasker, the ONLY writer of steps.json) pushes day totals to the private
+     repo and we pull them here. Totals land ONLY in log.stepsAuto; the
+     owner's own steps field is never touched (two sources, no overwriting —
+     the engine reads the larger via effectiveSteps). */
+  // Accepts either file shape:
+  //   { "days": { "YYYY-MM-DD": 8432, ... } }     (history; preferred)
+  //   { "date": "YYYY-MM-DD", "steps": 8432 }      (single-day overwrite)
+  // Returns a clean {date: int} map or null. Pure — unit-tested in selftest.
+  function parseStepsFile(obj) {
+    var raw = null;
+    if (obj && obj.days && typeof obj.days === 'object' && !Array.isArray(obj.days)) raw = obj.days;
+    else if (obj && obj.date && obj.steps != null) { raw = {}; raw[obj.date] = obj.steps; }
+    if (!raw) return null;
+    var U2 = global.RTI_UTIL, out = null;
+    for (var d in raw) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      // shape isn't enough: '2026-99-99' or '2026-02-30' would materialize a
+      // phantom log row forever — require a real calendar day (round-trip)
+      if (U2 && U2.fromISO && U2.toISO) {
+        var dt = U2.fromISO(d);
+        if (!dt || isNaN(dt.getTime()) || U2.toISO(dt) !== d) continue;
+      }
+      // values must BE numbers (or all-digit strings): +null/+''/+[] coerce to
+      // 0 and would zero out a real synced day
+      var v = raw[d];
+      if (typeof v !== 'number' && !(typeof v === 'string' && /^\d+(\.\d+)?$/.test(v))) continue;
+      var n = Math.round(+v);
+      if (!isFinite(n) || n < 0) continue;
+      var cap = (global.RTI_CONFIG && global.RTI_CONFIG.movement && global.RTI_CONFIG.movement.autoMaxSteps) || 100000;
+      if (n > cap) continue;                       // a garbage push can't distort the ledger
+      if (!out) out = {};
+      out[d] = n;
+    }
+    return out;
+  }
+  // Merge counter totals into the logs. Touches ONLY stepsAuto; skips
+  // unchanged values, dates older than autoStepsMaxAgeDays (one bad push
+  // can't seed years of phantom log rows), and future dates — the latter are
+  // DEFERRED, not lost: steps.json persists, so a key stamped tomorrow by a
+  // skewed clock applies as soon as the local date reaches it.
+  function applyAutoSteps(days, todayISO) {
+    if (!days) return 0;
+    var U2 = global.RTI_UTIL;
+    var maxAge = (global.RTI_CONFIG && global.RTI_CONFIG.movement && global.RTI_CONFIG.movement.autoStepsMaxAgeDays) || 60;
+    var applied = 0;
+    for (var d in days) {
+      if (todayISO && d > todayISO) continue;
+      if (todayISO && U2 && U2.daysBetween && U2.daysBetween(d, todayISO) > maxAge) continue;
+      var log = S.getLog(d);
+      if (log.stepsAuto === days[d]) continue;
+      S.patchLog(d, { stepsAuto: days[d] });
+      applied++;
+    }
+    return applied;
+  }
+  function pullSteps(cb) {
+    if (!configured() || !online()) { if (cb) cb(null, null); return; }
+    getFile('steps.json', function (err, remote) {
+      if (err || !remote) { if (cb) cb(err || null, null); return; }
+      var obj = null;
+      try { obj = JSON.parse(remote.text); } catch (e) { if (cb) cb(null, null); return; }
+      var days = parseStepsFile(obj);
+      var todayISO = null;
+      try { todayISO = global.RTI_UTIL ? global.RTI_UTIL.todayISO() : null; } catch (e2) {}
+      var applied = applyAutoSteps(days, todayISO);
+      if (applied) S.setSync({ lastStepsISO: new Date().toISOString() });
+      if (cb) cb(null, applied ? { applied: applied } : null);
+    });
+  }
+
   // Read the PRIVATE template registry (increment 9): ambitions authored off-device
   // (e.g. Operation September) that must never enter the public repo. The phone
   // only ever READS templates.json; installing goes through the normal RTI_GOALS
@@ -230,6 +307,7 @@
     function tell(err, obj) { try { if (obj && api.onPulled) api.onPulled(reason); } catch (e2) {} }
     pullMentor(tell);
     pullTemplates(tell);
+    pullSteps(tell);
   }
 
   var api = {
@@ -238,6 +316,7 @@
     pushBackup: pushBackup, overwriteCloud: overwriteCloud,
     restoreFromCloud: restoreFromCloud, pushPhotos: pushPhotos,
     pullMentor: pullMentor, pullTemplates: pullTemplates, maybeAutoSync: maybeAutoSync,
+    parseStepsFile: parseStepsFile, applyAutoSteps: applyAutoSteps, pullSteps: pullSteps,
     onPulled: null // app.js hook: called (reason) after a pull lands fresh data
   };
   global.RTI_SYNC = api;

@@ -98,6 +98,9 @@
       meditationMin: 0,
       breathingMin: 0,
       steps: 0,
+      stepsAuto: null,        // phone hardware counter total for the day —
+                              //   written ONLY by sync pullSteps (increment 11),
+                              //   never by hand; engine reads max(steps, stepsAuto)
       kcalBurned: 0,
       fatPct: null,
       sleepHrs: null,
@@ -210,6 +213,7 @@
       branch: 'main',
       auto: true,           // push on open/hide/online when the ledger changed
       lastSyncISO: null, lastStatus: null,
+      lastStepsISO: null,   // when the phone counter's steps.json last changed a log
       lastRemoteSha: null,  // sha of backup.json as LAST WRITTEN BY THIS DEVICE
       lastPushedHash: null, // bundle hash at last push (change detection)
       remoteForeign: false  // cloud copy differs from what we wrote — owner decides

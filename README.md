@@ -610,6 +610,43 @@ pipeline, so the phone needs one final ritual: open the app online, wait ~10 s,
 fully close it (swipe away from recents), reopen. From v18 on, updates announce
 themselves with the tap-to-reload bar.
 
+## Increment 11 — Background steps (the phone counter feeds the ledger)
+
+No web app can read the phone's hardware step counter with the screen off —
+that chip is native-only (`ACTIVITY_RECOGNITION` / `TYPE_STEP_COUNTER`). But the
+counter itself runs 24/7 regardless, so the missing piece was only *delivery*:
+an automation on the owner's phone (MacroDroid/Tasker — the ONLY writer of
+`steps.json`) pushes day totals to the private data repo, and the app pulls them
+over the existing single endpoint, exactly the way Mentor counsel arrives.
+SW → **v19**.
+
+- **Two sources, no overwriting**: the day's log gains `stepsAuto` (written ONLY
+  by `pullSteps`; the owner's `steps` field is never touched). The engine reads
+  `effectiveSteps = max(steps, stepsAuto)` — the hardware counter is an all-day
+  floor, a hand entry or live walk can only overrule it upward. Everything
+  downstream (Vitality, weekly totals, the coach's "move" item, the steps
+  trials, both charts, the Movement ring) reads the effective total.
+- **`sync.js pullSteps`**: accepts `{ "days": { "YYYY-MM-DD": n } }` or a
+  single-day `{ "date": ..., "steps": n }`. Strict by construction: keys must
+  be real calendar days no older than `config.movement.autoStepsMaxAgeDays`,
+  values must be actual numbers and are **rejected** (never clamped) above
+  `config.movement.autoMaxSteps` — a runaway automation can't distort the
+  ledger or seed phantom log rows. Future-dated keys are deferred, not lost
+  (steps.json persists; they apply when the local date reaches them). The
+  writer must stamp the PHONE's local date, never a server's UTC date. Rides
+  `maybeAutoSync` + `onPulled` like the other read-only pulls.
+- **Movement screen names its sources**: "📟 Phone counter: N today (auto ·
+  updated HH:MM)" beside the owner's own entry; the steppers build on the
+  effective total so a tap is always visible; *reset* clears only the manual
+  entry — the counter's number is a fact and stays.
+- The setup recipe for the phone-side automation lives in the PRIVATE data repo
+  (`steps-setup.md`) — nothing personal here.
+
+17 new self-test assertions (effectiveSteps merge/legacy/null-safety,
+parseStepsFile shapes + garbage rejection, applyAutoSteps only-stepsAuto +
+future-skip + no-op, downstream trial/weekly/movement reads, export round-trip,
+autoMaxSteps tunable) — `node tools/selftest.js` → **332 passed, 0 failed**.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web
