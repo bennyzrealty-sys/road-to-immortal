@@ -345,6 +345,70 @@
     return { series: out, total: cs.total };
   }
 
+  /* ---------- pooled study rates (increment 12) ----------
+     Averaging DAILY rates lets a 1-opportunity day (rate 100%) outweigh a
+     10-opportunity day — exactly the noise that made the app report a
+     *negative* association between practice and signals. Pooling sums the
+     numerators and denominators instead.
+
+     Settings are reported SEPARATELY and never merged into one headline: a
+     stranger on the street cannot produce a "clear" signal (initiated /
+     touch / contact) because there is no context for one, so street
+     opportunities crush a pooled rate they were never comparable to.
+
+     A missing `behavedDifferently` flag means UNMEASURED, not "no" — the old
+     code coerced absent to false and then reported "0% of signal days you
+     also initiated more", which is a null-data artefact, not evidence. */
+  function poolStudy(rs) {
+    var o = 0, c = 0, a = 0;
+    for (var i = 0; i < rs.length; i++) { o += rs[i].opp; c += rs[i].clear; a += rs[i].amb; }
+    return { days: rs.length, opportunities: o, clear: c, ambiguous: a,
+             clearPct: o ? U.round(c / o * 100, 1) : null,
+             allPct: o ? U.round((c + a) / o * 100, 1) : null };
+  }
+  function studyRates(settings, asOf, opts) {
+    opts = opts || {};
+    var minConf = opts.minConfidence || 0;
+    var rows = [], excluded = { missingDenominator: 0, zeroOpportunity: 0, lowConfidence: 0 };
+    var logs = S.logsArray();
+    for (var i = 0; i < logs.length; i++) {
+      var lg = logs[i], st = lg.study;
+      if (!st) continue;
+      if (asOf && lg.date > asOf) continue;
+      var opp = st.opportunities;
+      if (opp == null) { excluded.missingDenominator++; continue; }
+      if (!(+opp > 0)) { excluded.zeroOpportunity++; continue; }
+      var conf = st.confidence || 0;
+      if (minConf && conf < minConf) { excluded.lowConfidence++; continue; }
+      rows.push({ date: lg.date, opp: +opp,
+        clear: num(st.signalsClear), amb: num(st.signalsAmbiguous), conf: conf,
+        setting: st.setting || 'unspecified',
+        confoundKnown: st.behavedDifferently != null,
+        behaved: st.behavedDifferently === true });
+    }
+    var out = poolStudy(rows);
+    // per setting, biggest denominator first
+    var buckets = {}, order = [];
+    for (var j = 0; j < rows.length; j++) {
+      var nm = rows[j].setting;
+      if (!buckets[nm]) { buckets[nm] = []; order.push(nm); }
+      buckets[nm].push(rows[j]);
+    }
+    out.settings = order.map(function (nm) { var p = poolStudy(buckets[nm]); p.setting = nm; return p; })
+      .sort(function (a, b) { return b.opportunities - a.opportunities; });
+    // honest trend: pooled first half vs pooled second half, by date
+    var half = Math.floor(rows.length / 2);
+    out.firstHalf = half ? poolStudy(rows.slice(0, half)) : null;
+    out.secondHalf = half ? poolStudy(rows.slice(half)) : null;
+    var known = 0, behaved = 0;
+    for (var k = 0; k < rows.length; k++) { if (rows[k].confoundKnown) known++; if (rows[k].behaved) behaved++; }
+    out.confoundKnownDays = known;
+    out.confoundUnknownDays = rows.length - known;
+    out.behavedDays = behaved;
+    out.excluded = excluded;
+    return out;
+  }
+
   // Correlation integrity gate (section 1.3). Locked until day>=minDay AND
   // enough opportunity-days AND enough signal-days. Spearman when unlocked.
   function correlationStatus(settings, asOf, hcOnly) {
@@ -417,6 +481,22 @@
     push('med', 'med', 'Meditate', num(log.meditationMin) > 0, { timely: pid === 'afternoon' || pid === 'evening' });
     push('move', 'move', 'Move — steps / cardio', moved, { timely: pid === 'midday' || pid === 'afternoon' });
     push('mood', 'mood', 'Log today’s mood', log.mood != null, { timely: pid === 'evening' });
+    // increment 12 — sleep was the loudest signal in the ledger and the least
+    // logged. It only ever ROUTES to the Log (a real number, typed by the
+    // owner) — there is no one-tap "slept well", which would be a lie the app
+    // then reasons from. The label escalates when the trailing mean is short.
+    var slpDone = log.sleepHrs != null && isFinite(+log.sleepHrs);
+    var slpLabel = 'Log last night’s sleep';
+    try {
+      var pc = CFG.practice || {}, nd = pc.sleepNudgeDays || 3, sum = 0, cnt = 0;
+      for (var si = 1; si <= nd; si++) {
+        var sl = S.getLog(U.addDays(asOf, -si)).sleepHrs;
+        if (sl != null && isFinite(+sl)) { sum += +sl; cnt++; }
+      }
+      if (cnt && sum / cnt < (pc.sleepNudgeMeanBelow || 6.5))
+        slpLabel = 'Sleep is running at ' + U.round(sum / cnt, 1) + 'h — log last night';
+    } catch (eS) {}
+    push('sleep', 'sleep', slpLabel, slpDone, { timely: pid === 'morning' });
     push('targets', 'targets', 'Finish today’s targets', allTargets, { timely: pid === 'evening' });
     // increment 7 — ambition tasks on today's plate join the agenda (capped at 4
     // so the coach never drowns; the Ascent screen carries the full list). The
@@ -474,7 +554,11 @@
     // Deadline items (chase / due-today) rank straight after the clean question
     // (increment 10: 0.4/0.5, was 3.4/3.5) — a real-world deadline must outrank
     // "log lunch" even when lunch is the timely thing.
-    var prio = { clean: 0, goalchase: 0.4, goalms: 0.5, daytype: 1, plan: 2, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    // increment 12: sleep ranks above every hygiene item and every meal — each
+    // other meter in this app rests on it and it is the least-logged field
+    // there is — but NOT above day-type/plan, which gate the whole meal chain
+    // and are the day's shaping decision rather than a record of last night.
+    var prio = { clean: 0, goalchase: 0.4, goalms: 0.5, daytype: 1, plan: 2, sleep: 2.5, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
     pending.sort(function (a, b) {
       var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
       if (at !== bt) return at - bt;
@@ -630,6 +714,78 @@
       cleanStreak: streak.current, power: aura.power, stage: stage.current.name,
       index: aura.meters.index, displayName: (settings.displayName || '').trim()
     };
+  }
+
+  /* ---------- practice trend: the fade the streak hides (increment 12) ----------
+     The streak is binary and coasts on identity; the practices that actually
+     produce the results erode quietly underneath it. Nothing surfaced that
+     before. 7 days vs the previous 7, per practice. Pure over the ledger. */
+  function practiceWindow(settings, asOf, back) {
+    var o = { days: 0, meditationMin: 0, breathingMin: 0, steps: 0, planDays: 0,
+              workouts: 0, studyDays: 0, sleepLogged: 0, sleepMean: null };
+    var sleepSum = 0;
+    for (var i = 0; i < CFG.meters.windowDays; i++) {
+      var date = U.addDays(asOf, -(i + back));
+      if (U.daysBetween(settings.startDate, date) < 0) continue;
+      o.days++;
+      var log = S.getLog(date);
+      o.meditationMin += num(log.meditationMin);
+      o.breathingMin += num(log.breathingMin);
+      o.steps += effectiveSteps(log);
+      if ((log.nutrition || {}).templateId) o.planDays++;
+      // a logged "rest day" is not a training day — the label is the owner's own
+      var wt = log.workout ? String(log.workout.type || '') : '';
+      if (wt.replace(/^\s+|\s+$/g, '') && !/rest/i.test(wt)) o.workouts++;
+      if (log.study) o.studyDays++;
+      if (log.sleepHrs != null && isFinite(+log.sleepHrs)) { o.sleepLogged++; sleepSum += +log.sleepHrs; }
+    }
+    if (o.sleepLogged) o.sleepMean = U.round(sleepSum / o.sleepLogged, 1);
+    return o;
+  }
+  var FADE_KEYS = [
+    { key: 'meditationMin', label: 'stillness' },
+    { key: 'breathingMin', label: 'breathwork' },
+    { key: 'planDays', label: 'meal plans chosen' },
+    { key: 'workouts', label: 'training days' },
+    { key: 'studyDays', label: 'study entries' }
+  ];
+  function practiceTrend(settings, asOf) {
+    var now = practiceWindow(settings, asOf, 0), prev = practiceWindow(settings, asOf, CFG.meters.windowDays);
+    var falling = [];
+    for (var i = 0; i < FADE_KEYS.length; i++) {
+      var k = FADE_KEYS[i].key;
+      if (prev[k] > 0 && now[k] < prev[k]) {
+        falling.push({ key: k, label: FADE_KEYS[i].label, now: now[k], prev: prev[k],
+                       dropPct: Math.round((prev[k] - now[k]) / prev[k] * 100) });
+      }
+    }
+    falling.sort(function (a, b) { return b.dropPct - a.dropPct; });
+    var pc = CFG.practice || {};
+    var minF = pc.fadeMinFalling || 3, severe = pc.fadeSevereDropPct || 50;
+    // Two triggers, because breadth and depth are different failures: several
+    // practices slipping at once, OR one of them falling off a cliff. Without
+    // the second, a slide that has already bottomed out reads as "steady" —
+    // week-on-week can't see a decline once the floor is reached.
+    var worst = falling.length ? falling[0].dropPct : 0;
+    return { now: now, prev: prev, falling: falling, worstDropPct: worst,
+             fading: prev.days >= CFG.meters.windowDays &&
+                     (falling.length >= minF || worst >= severe) };
+  }
+  // The willpower scale reserves points for urges BANKED as they hit, so with
+  // few banked the meter cannot approach 100 however perfectly the days are
+  // held. Returns the highest reading actually reachable given `bankedInWindow`
+  // urges — a structural limit must never read as weak character (increment 12).
+  function willpowerCeiling(bankedInWindow) {
+    var w = CFG.meters.willpower;
+    var reachable = (w.perCleanDay + w.allTargetsDone) * CFG.meters.windowDays +
+                    w.perUrgeResisted * num(bankedInWindow);
+    return U.clamp(Math.round(reachable / w.maxPerWindow * 100), 0, 100);
+  }
+  // urges banked in the meter window ending asOf (the ceiling's own input)
+  function urgesInWindow(asOf) {
+    var n = 0;
+    for (var i = 0; i < CFG.meters.windowDays; i++) n += S.urgesOnDate(U.addDays(asOf, -i));
+    return n;
   }
 
   /* ---------- overall standing / performance summary ---------- */
@@ -880,6 +1036,8 @@
     weeklyTotals: weeklyTotals, snapshot: snapshot,
     chiSeries: chiSeries, totalChiAccumulated: totalChiAccumulated,
     ascensionData: ascensionData, correlationStatus: correlationStatus,
+    studyRates: studyRates, practiceTrend: practiceTrend,
+    willpowerCeiling: willpowerCeiling, urgesInWindow: urgesInWindow,
     nutritionAdherence: nutritionAdherence, nutritionFlags: nutritionFlags,
     activeTags: activeTags, getTemplate: getTemplate, effectiveMeal: effectiveMeal,
     coachPhase: coachPhase, dailyAgenda: dailyAgenda, auraScores: auraScores,

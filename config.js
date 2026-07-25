@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v19 · Increment 11',
+    appVersion: 'v20 · Increment 12',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -254,6 +254,20 @@
        enough real data to mean anything. All thresholds tunable. */
     ascension: {
       correlationLock: { minDay: 60, minOppDays: 15, minSignalDays: 10 }
+    },
+
+    /* ---- Practice fade + sleep coaching (increment 12) ----
+       The streak is binary and coasts; the practices underneath it fade
+       quietly. fadeMinFalling = how many of the five tracked practices must be
+       down week-on-week before Today says so out loud. preregMinDays = when to
+       start asking for a locked prediction (post-hoc readings prove nothing). */
+    practice: {
+      fadeMinFalling: 3,
+      fadeSevereDropPct: 50,     // one practice halving is a fade on its own
+
+      preregMinDays: 5,
+      sleepNudgeMeanBelow: 6.5,  // trailing mean (hours) that escalates the sleep prompt
+      sleepNudgeDays: 3          // days in that trailing mean
     },
 
     /* ---- Photo measurement module (increment 2, Module A) ---- */

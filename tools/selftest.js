@@ -960,5 +960,134 @@ check('config: autoMaxSteps + autoStepsMaxAgeDays tunables exist',
     mx11.trends.steps.last7 + '|' + mx11.trends.steps.direction, '9000|flat');
 })();
 
+/* =================== INCREMENT 12 — THE HONEST MIRROR =================== */
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+// Reproduce the exact artefact found in the owner's real ledger: four "round 10"
+// days (two of them on the street) with zero clear signals, alongside precise
+// smaller days that DID carry clear signals. Averaging daily rates says the
+// practice hurts; pooling says the opposite. The pooling is the honest one.
+S.patchLog('2026-06-30', { clean: true, meditationMin: 20, study: { opportunities: 10, signalsClear: 0, signalsAmbiguous: 2, confidence: 2, setting: 'street' } });
+S.patchLog('2026-07-02', { clean: true, meditationMin: 30, study: { opportunities: 10, signalsClear: 0, signalsAmbiguous: 3, confidence: 3, setting: 'street' } });
+S.patchLog('2026-07-04', { clean: true, meditationMin: 30, study: { opportunities: 10, signalsClear: 0, signalsAmbiguous: 4, confidence: 3, setting: 'work' } });
+S.patchLog('2026-07-07', { clean: true, meditationMin: 5,  study: { opportunities: 4, signalsClear: 1, signalsAmbiguous: 2, confidence: 3, setting: 'work' } });
+S.patchLog('2026-07-15', { clean: true, meditationMin: 0,  study: { opportunities: 8, signalsClear: 2, signalsAmbiguous: 5, confidence: 5, setting: 'work' } });
+S.patchLog('2026-07-18', { clean: true, meditationMin: 10, study: { opportunities: 6, signalsClear: 2, signalsAmbiguous: 2, confidence: 5, setting: 'work' } });
+S.patchLog('2026-07-11', { clean: true, study: { opportunities: 0, signalsClear: 0, signalsAmbiguous: 0 } });            // zero-opportunity
+S.patchLog('2026-07-13', { clean: true, study: { signalsClear: 0, signalsAmbiguous: 4, confidence: 5, setting: 'work' } }); // no denominator
+var SR = E.studyRates(st, '2026-07-24');
+check('studyRates pools signals over opportunities (not a mean of daily rates)',
+  SR.opportunities + '|' + SR.clear + '|' + SR.ambiguous + '|' + SR.clearPct, '48|5|18|10.4');
+check('studyRates excludes the undenominated and zero-opportunity days honestly',
+  SR.days + '|' + SR.excluded.missingDenominator + '|' + SR.excluded.zeroOpportunity, '6|1|1');
+// the mean of daily rates is inflated by the small-denominator days — the exact
+// bug that made the app read a negative association
+var daily = [0/10, 0/10, 0/10, 1/4, 2/8, 2/6].reduce(function (a, b) { return a + b; }, 0) / 6 * 100;
+check('mean-of-daily-rates disagrees with the pooled rate', Math.round(daily * 10) / 10 > SR.clearPct, true);
+// settings are reported apart: street NEVER produced a clear signal in 20 chances
+var byS = {}; SR.settings.forEach(function (x) { byS[x.setting] = x; });
+check('street and work are never pooled together',
+  byS.street.opportunities + '|' + byS.street.clear + '|' + byS.street.clearPct + '||' +
+  byS.work.opportunities + '|' + byS.work.clear + '|' + byS.work.clearPct, '20|0|0||28|5|17.9');
+check('settings are ordered by denominator, biggest first', SR.settings[0].setting, 'work');
+// the confound must read as UNMEASURED, never as "no"
+check('absent confound flags count as unmeasured, not false',
+  SR.confoundKnownDays + '|' + SR.confoundUnknownDays + '|' + SR.behavedDays, '0|6|6'.replace('6|6','6|0'));
+S.patchLog('2026-07-18', { study: { opportunities: 6, signalsClear: 2, signalsAmbiguous: 2, confidence: 5, setting: 'work', behavedDifferently: false } });
+check('an answered "no" is measured', E.studyRates(st, '2026-07-24').confoundKnownDays, 1);
+// high-confidence filtering runs on the pooled numbers too
+var SRhc = E.studyRates(st, '2026-07-24', { minConfidence: 4 });
+check('confidence filter pools only the high-confidence days',
+  SRhc.days + '|' + SRhc.opportunities + '|' + SRhc.clear + '|' + SRhc.excluded.lowConfidence, '2|14|4|4');
+// the correlation lock governs this data (day 47 of the real ledger < 60)
+var cs12 = E.correlationStatus(st, '2026-07-24');
+check('correlations stay locked on this evidence base', cs12.unlocked, false);
+check('the lock reports its own shortfall', (cs12.day < cs12.thresholds.minDay) + '|' + (cs12.oppDays < cs12.thresholds.minOppDays), 'true|true');
+
+// --- the fade: the streak coasts while the practices erode
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+(function () {
+  for (var i = 0; i < 14; i++) {
+    var d = U.addDays('2026-07-24', -i), strong = i >= 7;   // the OLDER week is the strong one
+    S.patchLog(d, { clean: true,
+      meditationMin: strong ? 30 : 5, breathingMin: strong ? 40 : 10,
+      workout: { type: strong ? 'Legs' : 'Rest day', notes: '' },
+      nutrition: strong ? { dayType: 'shift', templateId: 'shiftA' } : { dayType: 'shift', templateId: null },
+      study: strong ? { opportunities: 5, signalsClear: 1, signalsAmbiguous: 1, confidence: 4, setting: 'work' } : null });
+  }
+})();
+var PT = E.practiceTrend(st, '2026-07-24');
+check('practiceTrend measures 7 days against the previous 7', PT.now.days + '|' + PT.prev.days, '7|7');
+check('practiceTrend catches the collapse', PT.now.meditationMin + '|' + PT.prev.meditationMin, '35|210');
+check('practiceTrend flags the fade when 3+ practices fall', PT.fading + '|' + (PT.falling.length >= 3), 'true|true');
+check('practiceTrend ranks the steepest drop first', PT.falling[0].dropPct >= PT.falling[PT.falling.length - 1].dropPct, true);
+check('a logged "Rest day" is not counted as training', PT.now.workouts, 0);
+check('practiceTrend names each falling practice for the UI', typeof PT.falling[0].label, 'string');
+// a steady fortnight must NOT cry fade
+(function () {
+  // study: null too — the collapse fixture above left study entries on the older
+  // week, which would otherwise make this "steady" fortnight a 100% fade
+  for (var i = 0; i < 14; i++) S.patchLog(U.addDays('2026-07-24', -i), { clean: true, meditationMin: 15, breathingMin: 20, workout: { type: 'Legs', notes: '' }, nutrition: { dayType: 'shift', templateId: 'shiftA' }, study: null });
+})();
+check('a steady fortnight raises no fade warning', E.practiceTrend(st, '2026-07-24').fading, false);
+// depth counts as well as breadth: a slide that already bottomed out shows only
+// one or two falling practices, but a halving is still a fade (seen live —
+// breathwork −55% read as "steady" under a breadth-only rule)
+(function () {
+  for (var i = 0; i < 14; i++) {
+    var d = U.addDays('2026-07-24', -i), old = i >= 7;
+    S.patchLog(d, { clean: true, meditationMin: 15, breathingMin: old ? 40 : 10,
+      workout: { type: 'Legs', notes: '' }, nutrition: { dayType: 'shift', templateId: 'shiftA' }, study: null });
+  }
+  var pt2 = E.practiceTrend(st, '2026-07-24');
+  check('one practice halving alone raises the fade', pt2.falling.length + '|' + pt2.fading, '1|true');
+  check('the worst drop is reported for the copy', pt2.worstDropPct >= 50, true);
+})();
+
+// --- sleep joins the coach agenda, and can never be one-tapped "done"
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+for (var s12 = 1; s12 <= 3; s12++) S.patchLog(U.addDays('2026-07-24', -s12), { clean: true, sleepHrs: 5 });
+var agS = E.dailyAgenda(st, '2026-07-24', 8);
+var slpItem = agS.items.filter(function (it) { return it.kind === 'sleep'; })[0];
+check('sleep is on the agenda when last night is unlogged', !!slpItem + '|' + slpItem.done, 'true|false');
+check('a short trailing mean escalates the sleep label', /5h/.test(slpItem.label), true);
+// On a blank day the day-shaping question still leads — sleep must never hijack
+// it (day-type gates the whole meal chain). Meals are `blocked` until a plan is
+// chosen, so they are absent from `pending` here entirely.
+(function () {
+  var order = agS.pending.map(function (it) { return it.kind; });
+  check('day-type still opens a blank morning', order[0], 'daytype');
+  check('meals stay blocked (and out of pending) with no plan chosen', order.indexOf('meal'), -1);
+})();
+// With the plan chosen, sleep outranks every meal and every hygiene item
+S.patchLog('2026-07-24', { nutrition: { dayType: 'shift', templateId: 'shiftA' } });
+(function () {
+  var order = E.dailyAgenda(st, '2026-07-24', 8).pending.map(function (it) { return it.kind; });
+  function at(k) { return order.indexOf(k); }
+  check('sleep leads once the day is shaped', order[0], 'sleep');
+  check('sleep outranks meals and hygiene',
+    (at('sleep') < at('meal')) + '|' + (at('sleep') < at('breath')) + '|' + (at('sleep') < at('targets')), 'true|true|true');
+})();
+S.patchLog('2026-07-24', { sleepHrs: 7 });
+check('a logged night clears the sleep item', E.dailyAgenda(st, '2026-07-24', 8).items.filter(function (it) { return it.kind === 'sleep' && !it.done; }).length, 0);
+
+// --- the willpower ceiling is structural, and stated
+check('willpowerCeiling is the reachable max with no urges banked', E.willpowerCeiling(0), 38);
+check('the ceiling matches the config scale',
+  E.willpowerCeiling(0),
+  Math.round((global.RTI_CONFIG.meters.willpower.perCleanDay + global.RTI_CONFIG.meters.willpower.allTargetsDone) *
+    global.RTI_CONFIG.meters.windowDays / global.RTI_CONFIG.meters.willpower.maxPerWindow * 100));
+// 7 banked over the window: (10+5)*7 + 5*7 = 140 of 280 = 50%
+check('banked urges raise the reachable ceiling', E.willpowerCeiling(1) + '|' + E.willpowerCeiling(7), '39|50');
+check('banking an urge a day unseals the top of the scale', E.willpowerCeiling(35), 100);
+// urgesInWindow feeds the ceiling from the real ledger
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+S.bankUrge(Date.parse('2026-07-22T14:00:00Z'), '2026-07-22');
+S.bankUrge(Date.parse('2026-07-22T21:00:00Z'), '2026-07-22');
+S.bankUrge(Date.parse('2026-06-20T14:00:00Z'), '2026-06-20');   // outside the window
+check('urgesInWindow counts only the meter window', E.urgesInWindow('2026-07-24'), 2);
+check('config: increment 12 tunables exist',
+  (global.RTI_CONFIG.practice.fadeMinFalling >= 1) + '|' + (global.RTI_CONFIG.practice.preregMinDays >= 1) + '|' +
+  (global.RTI_CONFIG.practice.sleepNudgeMeanBelow > 0), 'true|true|true');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

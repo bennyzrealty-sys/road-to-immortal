@@ -8,7 +8,7 @@
    user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v19';
+var CACHE = 'rti-shell-v20';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',

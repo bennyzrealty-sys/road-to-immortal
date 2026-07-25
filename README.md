@@ -647,6 +647,70 @@ parseStepsFile shapes + garbage rejection, applyAutoSteps only-stepsAuto +
 future-skip + no-op, downstream trial/weekly/movement reads, export round-trip,
 autoMaxSteps tunable) — `node tools/selftest.js` → **332 passed, 0 failed**.
 
+## Increment 12 — The Honest Mirror (the app stops overclaiming)
+
+A full statistical pass over the real 47-day ledger found the app publishing a
+**false and demoralising conclusion**: the Study screen printed six Pearson
+correlations — signal-rate vs Chi −0.48, Vitality −0.55, Willpower −0.59,
+Presence −0.40, Index −0.49 — which read as *"the more disciplined I am, the less
+women respond."* It was an artefact, and the ledger proves it: four days logged
+`opportunities` as a round **10** with zero clear signals (two of them
+`setting: street`, where a "clear" signal — initiated, touch, contact — is
+impossible by definition). Those four days carried the highest meditation
+minutes. Excluding them alone flips the meditation↔clear-signal correlation from
+**−0.45 to +0.14**. Measured pooled instead, the real trend is the opposite:
+**4.1% → 19.0%** clear-signal rate, first half to second. SW → **v20**.
+
+- **The correlation lock now governs both screens.** `screenStudy` printed
+  Pearsons at 14 study days while Ascension was correctly sealed
+  (`engine.js correlationStatus`, day < 60, opportunity-days < 15). The Study
+  screen now reuses that same gate and shows the shortfall instead of numbers.
+  When it does unlock, it says plainly that a never-broken streak and the
+  calendar are the same column.
+- **Pooled, opportunity-weighted rates** (`E.studyRates`, pure + tested):
+  Σsignals ÷ Σopportunities, so a 1-opportunity day can no longer outweigh a
+  10-opportunity one — the exact noise that inverted the old reading. Reports
+  the first-half → second-half trend, and counts the days it excluded
+  (no denominator, zero-opportunity) instead of dropping them silently.
+- **Settings are never merged.** `setting` was recorded since increment 6 and
+  used by nothing. Now each is pooled separately and labelled *not comparable*:
+  in the real data, work = 9 clear of 58, street = **0 clear of 20**.
+- **The confound reads as unmeasured, not "no."** An absent
+  `behavedDifferently` was coerced to false, so the app claimed "0% of signal
+  days you also initiated more" — a null-data artefact on 13 of 14 days. The
+  flag is now tri-state (yes / no / **not recorded**, the last one deleting the
+  key) and the copy says unmeasured when it is.
+- **"Opportunity" is defined at the point of entry** — within conversational
+  distance, ~30s+, speech possible; never a crowd or a street in passing. The
+  round-10 days are what a missing definition costs.
+- **The fade the streak hides** (`E.practiceTrend`, pure + tested): 7 days vs
+  the previous 7 across stillness, breathwork, meal plans chosen, training days
+  and study entries. Today names it when three or more slip **or** any one
+  halves (`config.practice.fadeSevereDropPct`) — without the second trigger a
+  slide that already bottomed out reads as "steady", which is how a 67% drop in
+  study entries and 55% in breathwork went unmentioned.
+- **Sleep joins the coach agenda**, ranked above every meal and hygiene item but
+  never above the day-shaping question. It only ever *routes to the Log* for a
+  real number — there is deliberately no one-tap "slept fine" for the app to
+  reason from — and the label escalates with the trailing mean
+  (`config.practice.sleepNudge*`).
+- **The Willpower ceiling is stated.** That scale reserves points for urges
+  *banked as they hit*, so a week with one banked urge cannot read above **39**
+  however perfectly it was held. `E.willpowerCeiling(banked)` computes the
+  reachable max and the Power screen explains it, self-silencing once the scale
+  can reach a fair number. A structural limit must never read as weak character.
+- **Pre-registration is chased.** `meta.prereg` sat empty and unlocked, making
+  every reading post-hoc — while confidence-in-reading climbed almost perfectly
+  with time (r = +0.96). Past `config.practice.preregMinDays` study days the
+  screen says so.
+
+33 new self-test assertions, several reproducing the real artefacts directly
+(pooled ≠ mean-of-daily-rates; street never pools into work; absent confound
+flags stay unmeasured; a logged "Rest day" is not training; one practice halving
+raises the fade; sleep never outranks day-type but always outranks meals;
+banked urges raise the reachable ceiling) — `node tools/selftest.js` →
+**369 passed, 0 failed**.
+
 ## Open risks / TODOs
 
 - **iOS Safari PWA quirks:** installs work, but iOS evicts `localStorage` for unused web

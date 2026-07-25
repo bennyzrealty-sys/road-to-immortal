@@ -421,6 +421,8 @@
       case 'med': q = 'A few minutes of stillness?'; ctrls = cpBtn('med', 'Meditate +5', 'cyan'); break;
       case 'move': q = 'Move the body — steps or cardio.'; ctrls = cpBtn('steps', '+1,000 steps', 'cyan'); break;
       case 'mood': q = 'How’s the inner weather today?'; ctrls = cpBtn('go-log', 'Log mood', ''); break;
+      // increment 12 — routes to the Log for a real number; no one-tap "slept fine"
+      case 'sleep': q = p.label + '. Everything else — Chi, Vitality, mood, the danger hour — sits on this one number.'; ctrls = cpBtn('go-log', 'Log sleep', 'cyan'); break;
       case 'targets': q = 'A few of today’s targets are still open ↓'; ctrls = ''; break;
       case 'goaltask': q = p.label + ' — a step on The Ascent.'; ctrls = cpBtn('goal-done', 'Done ✓', 'gold', p.mealKey) + cpBtn('go-goals', 'The Ascent', ''); break;
       // increment 9 — due/chase milestones: every action clears today's plate
@@ -547,7 +549,7 @@
         if (k === 'breath') { quickAction('breath', b); return; }
         if (k === 'med') { quickAction('med', b); return; }
         if (k === 'move') { quickAction('steps', b); return; }
-        if (k === 'mood') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
+        if (k === 'mood' || k === 'sleep') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
         if (k === 'targets') { // scroll TO the targets card, not past it (increment 10)
           var tc = appEl.querySelector('#targets-card');
           if (tc && tc.scrollIntoView) tc.scrollIntoView({ block: 'start' });
@@ -699,6 +701,22 @@
         (waitingT.length > 1 ? ' and ' + (waitingT.length - 1) + ' more' : '') + ' arrived from your private vault — one tap on The Ascent installs the roadmap and its reminders.</div></div>' +
         '<button class="btn sm gold" data-go="goals">Install</button></div></div>' });
     } catch (eTB) {}
+    // 2b — the fade (increment 12): the streak is binary and coasts on identity
+    //      while the practices that actually produce the results erode beneath
+    //      it. Named plainly, with numbers, and never as a scold.
+    try {
+      var pt = E.practiceTrend(s, today());
+      if (pt.fading) {
+        var f0 = pt.falling[0], f1 = pt.falling[1];
+        banners.push({ id: 'fade', html: '<div class="card" style="border-color:rgba(154,107,255,.35);background:rgba(154,107,255,.07)">' +
+          '<div class="row"><div class="grow"><b>The line holds — the practice is fading</b><div class="tiny muted">' +
+          esc(f0.label) + ' down ' + f0.dropPct + '% this week (' + f0.prev + ' → ' + f0.now + ')' +
+          (f1 ? ', ' + esc(f1.label) + ' down ' + f1.dropPct + '%' : '') +
+          (pt.falling.length > 2 ? ' — and ' + (pt.falling.length - 2) + ' more' : '') +
+          '. The streak is the easy part; these are what built the change.</div></div>' +
+          '<button class="btn sm cyan" data-go="stats">Look</button></div></div>' });
+      }
+    } catch (eFB) {}
     // 3 — unread Mentor counsel (increment 8)
     try {
       var mm2 = S.getMentor();
@@ -1280,16 +1298,18 @@
     var rateMode = state._studyRate || 'all';   // 'all' = clear+ambiguous, 'clear' = clear only
     function selRate(r) { return rateMode === 'clear' ? r.rateClear : r.rateAll; }
 
-    // correlations (against the selected rate series)
-    function corr(key) { return U.pearson(used.map(selRate), used.map(function (r) { return key(r); })); }
+    // increment 12 — POOLED rates (opportunity-weighted) and the same
+    // correlation lock the Ascension screen uses. This screen used to print six
+    // Pearsons over a dozen days while Ascension was still locked, and the
+    // numbers came out NEGATIVE for a measurement reason: four days logged a
+    // round "10" opportunities with zero clear signals, two of them on the
+    // street where a "clear" signal is impossible by definition. Averaging
+    // daily rates let those days dominate. The app was telling its owner that
+    // discipline reduces attraction. It does not get to say that again.
+    var pooled = E.studyRates(s, today(), hcOnly ? { minConfidence: 4 } : null);
+    var cs = E.correlationStatus(s, today(), hcOnly);
     function cstr(c) { return c == null ? '—' : (c > 0 ? '+' : '') + c.toFixed(2); }
-    var cStreak = corr(function (r) { return r.streak; });
-    var cChi = corr(function (r) { return r.meters.chi; });
-    var cVit = corr(function (r) { return r.meters.vitality; });
-    var cWill = corr(function (r) { return r.meters.willpower; });
-    var cPres = corr(function (r) { return r.meters.presence; });
-    var cIndex = corr(function (r) { return r.meters.index; });
-    var behavedShare = used.length ? Math.round(used.filter(function (r) { return r.behaved && (r.clear + r.amb) > 0; }).length / Math.max(1, used.filter(function (r) { return (r.clear + r.amb) > 0; }).length) * 100) : 0;
+    function pct(v) { return v == null ? '—' : v.toFixed(1) + '%'; }
 
     var scatter = lineChart(used.map(function (r) { return { x: r.day, y: Math.round(selRate(r) * 100) }; }).sort(function (a, b) { return a.x - b.x; }),
       rateMode === 'clear' ? '#62d8ff' : '#c98bff', { trend: true, min: 0, xlabel: 'day', ylabel: (rateMode === 'clear' ? 'clear' : 'clear+amb') + ' rate %' });
@@ -1299,33 +1319,75 @@
       '<div class="card"><h3>Pre-registration</h3>' +
         (meta.preregLocked ?
           '<p class="muted" style="font-style:italic">' + esc(meta.prereg || '(empty)') + '</p><div class="tiny faint">Locked — your prediction is fixed so hindsight can’t reshape it.</div>' :
+          // increment 12 — an unlocked prereg makes every reading post-hoc, and
+          // confidence-in-reading has been climbing in lockstep with the rate
+          (rows.length >= ((CFG.practice && CFG.practice.preregMinDays) || 5)
+            ? '<div class="flag amber" style="margin:0 0 10px">' + rows.length + ' study days logged and still no locked prediction — so every number below is being read <i>after</i> the fact. Write what you expect <b>before</b> the next stretch, or the study can only ever agree with you.</div>' : '') +
           '<label class="field"><span>What I expect to see (one-time)</span><textarea id="prereg" placeholder="e.g. Clear-signal rate roughly doubles after day 60, strongest in social settings.">' + esc(meta.prereg || '') + '</textarea></label>' +
           '<button class="btn sm gold" id="lockprereg">Lock prediction</button>') +
       '</div>' +
       '<div class="card"><h3>Today’s entry</h3>' +
-        '<label class="field"><span>Opportunities — women in genuine interaction range (denominator, required)</span><input type="number" data-s="opportunities" value="' + (study.opportunities != null ? study.opportunities : '') + '"></label>' +
+        '<label class="field"><span>Opportunities — the denominator (required)</span><input type="number" data-s="opportunities" value="' + (study.opportunities != null ? study.opportunities : '') + '"></label>' +
+        // increment 12 — the definition has to be fixed and visible: a round
+        // "10" for "a crowd was around" once produced 40 opportunities and 0
+        // clear signals, and dragged every rate and correlation down with it
+        '<div class="tiny faint" style="margin:-4px 0 10px">Count only: <b>within conversational distance, for ~30 seconds or more, where speaking would have been possible.</b> Never a crowd, a street, or a room in passing — those are not opportunities and they wreck the rate. Same rule every day.</div>' +
         '<label class="field"><span>Clear signals (initiated, touch, contact, explicit)</span><input type="number" data-s="signalsClear" value="' + (study.signalsClear != null ? study.signalsClear : '') + '"></label>' +
         '<label class="field"><span>Ambiguous signals (glances, a vibe)</span><input type="number" data-s="signalsAmbiguous" value="' + (study.signalsAmbiguous != null ? study.signalsAmbiguous : '') + '"></label>' +
         scaleS('confidence', 'Confidence in today’s read', study.confidence) +
         '<label class="field"><span>Setting</span><div class="seg" id="setting">' +
           ['gym', 'work', 'street', 'social', 'other'].map(function (x) { return '<button data-set="' + x + '" class="' + (study.setting === x ? 'on' : '') + '">' + x + '</button>'; }).join('') +
         '</div></label>' +
-        '<div class="check' + (study.behavedDifferently ? ' on' : '') + '" id="behaved"><span class="box">' + (study.behavedDifferently ? '✓' : '') + '</span><span class="txt">I initiated more than usual today (confound flag)</span></div>' +
+        // tri-state: unanswered must stay distinguishable from "no", or the app
+        // reports a 0% confound share it never actually measured
+        '<label class="field"><span>Did you initiate more than usual? (confound)</span><div class="seg" id="behaved">' +
+          '<button data-beh="yes" class="' + (study.behavedDifferently === true ? 'on' : '') + '">yes</button>' +
+          '<button data-beh="no" class="' + (study.behavedDifferently === false ? 'on' : '') + '">no</button>' +
+          '<button data-beh="unknown" class="' + (study.behavedDifferently == null ? 'on' : '') + '">not recorded</button>' +
+        '</div></label>' +
         '<div class="tiny faint" style="margin-top:8px">Log days with zero signals too — honesty is the whole point.</div>' +
       '</div>' +
       '<div class="card"><h3>Analysis</h3>' +
         '<div class="check' + (hcOnly ? ' on' : '') + '" id="hcfilter"><span class="box">' + (hcOnly ? '✓' : '') + '</span><span class="txt">High-confidence days only (4–5)</span></div>' +
-        '<div class="tiny faint" style="margin:6px 0 8px">' + used.length + ' study days · ' + zeroDays + ' zero-signal days logged</div>' +
+        '<div class="tiny faint" style="margin:6px 0 8px">' + used.length + ' study days · ' + zeroDays + ' zero-signal days logged' +
+          (pooled.excluded.missingDenominator ? ' · ' + pooled.excluded.missingDenominator + ' excluded (no opportunity count)' : '') +
+          (pooled.excluded.zeroOpportunity ? ' · ' + pooled.excluded.zeroOpportunity + ' zero-opportunity day' + (pooled.excluded.zeroOpportunity === 1 ? '' : 's') : '') + '</div>' +
         '<div class="seg" style="margin:0 0 10px"><button data-rate="all" class="' + (rateMode === 'all' ? 'on' : '') + '">Clear + ambiguous</button><button data-rate="clear" class="' + (rateMode === 'clear' ? 'on' : '') + '">Clear only</button></div>' +
         scatter +
         '<div class="divider"></div>' +
-        '<table style="width:100%;font-size:13px"><tr><td class="muted">Rate vs clean streak</td><td style="text-align:right"><b>' + cstr(cStreak) + '</b></td></tr>' +
-        '<tr><td class="muted">Rate vs Chi</td><td style="text-align:right"><b>' + cstr(cChi) + '</b></td></tr>' +
-        '<tr><td class="muted">Rate vs Vitality</td><td style="text-align:right"><b>' + cstr(cVit) + '</b></td></tr>' +
-        '<tr><td class="muted">Rate vs Willpower</td><td style="text-align:right"><b>' + cstr(cWill) + '</b></td></tr>' +
-        '<tr><td class="muted">Rate vs Presence</td><td style="text-align:right"><b>' + cstr(cPres) + '</b></td></tr>' +
-        '<tr><td class="muted">Rate vs Immortal Index</td><td style="text-align:right"><b>' + cstr(cIndex) + '</b></td></tr></table>' +
-        '<div class="tiny faint" style="margin-top:8px">' + (used.length < 5 ? 'Need ~5+ study days before correlations mean much.' : 'On ' + behavedShare + '% of your signal days you also initiated more — weigh that confound.') + '</div>' +
+        // pooled = signals ÷ opportunities across all days, so a 1-opportunity
+        // day cannot outweigh a 10-opportunity one
+        '<div class="tiny muted" style="margin-bottom:6px">Pooled rate — every signal over every opportunity</div>' +
+        '<table style="width:100%;font-size:13px">' +
+        '<tr><td class="muted">Clear signals</td><td style="text-align:right"><b>' + pooled.clear + ' / ' + pooled.opportunities + '</b> · <b>' + pct(pooled.clearPct) + '</b></td></tr>' +
+        '<tr><td class="muted">Clear + ambiguous</td><td style="text-align:right"><b>' + (pooled.clear + pooled.ambiguous) + ' / ' + pooled.opportunities + '</b> · <b>' + pct(pooled.allPct) + '</b></td></tr>' +
+        (pooled.firstHalf && pooled.secondHalf ?
+          '<tr><td class="muted">Clear rate — first half → second</td><td style="text-align:right"><b>' + pct(pooled.firstHalf.clearPct) + ' → ' + pct(pooled.secondHalf.clearPct) + '</b></td></tr>' : '') +
+        '</table>' +
+        // settings are never merged: a stranger on the street cannot produce a
+        // "clear" signal, so those opportunities are not comparable to work
+        (pooled.settings.length > 1 ?
+          '<div class="tiny muted" style="margin:12px 0 6px">By setting — these are <b>not</b> comparable to each other</div>' +
+          '<table style="width:100%;font-size:13px">' + pooled.settings.map(function (x) {
+            return '<tr><td class="muted">' + esc(x.setting) + ' <span class="faint">(' + x.days + 'd)</span></td>' +
+              '<td style="text-align:right">clear <b>' + pct(x.clearPct) + '</b> <span class="faint">of ' + x.opportunities + '</span></td></tr>';
+          }).join('') + '</table>' : '') +
+        '<div class="divider"></div>' +
+        // the lock now governs BOTH screens — this one used to ignore it
+        (cs.unlocked ?
+          '<table style="width:100%;font-size:13px">' +
+          '<tr><td class="muted">Rate vs clean streak</td><td style="text-align:right"><b>' + cstr(cs.spearmanStreak) + '</b></td></tr>' +
+          '<tr><td class="muted">Rate vs Chi level</td><td style="text-align:right"><b>' + cstr(cs.spearmanChi) + '</b></td></tr></table>' +
+          '<div class="flag info" style="margin-top:8px">Spearman rank — <b>association, not proof</b>. Your streak has never broken, so “streak” and “calendar day” are the same column: a rising rate cannot tell them apart.</div>'
+          :
+          '<div class="flag info" style="margin:0">🔒 Correlations stay sealed until <b>Day ' + cs.thresholds.minDay + '</b> · ' +
+            cs.oppDays + '/' + cs.thresholds.minOppDays + ' opportunity-days · ' + cs.signalDays + '/' + cs.thresholds.minSignalDays + ' signal-days. ' +
+            'The pooled rates above are honest now; a correlation on this many days is not.</div>') +
+        '<div class="tiny faint" style="margin-top:8px">' +
+          (pooled.confoundUnknownDays
+            ? 'Confound <b>unmeasured</b> on ' + pooled.confoundUnknownDays + ' of ' + pooled.days + ' days — “I initiated more” was never answered there, which is not the same as “no”.'
+            : 'On ' + Math.round(pooled.behavedDays / Math.max(1, pooled.days) * 100) + '% of these days you also initiated more — weigh that confound.') +
+        '</div>' +
       '</div></div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html)); wireDateStepper();
 
@@ -1342,7 +1404,15 @@
     appEl.querySelectorAll('[data-set]').forEach(function (b) {
       b.onclick = function () { var st = S.getLog(d).study || {}; st.setting = b.getAttribute('data-set'); S.patchLog(d, { study: st }); render(); };
     });
-    var bv = appEl.querySelector('#behaved'); if (bv) bv.onclick = function () { var st = S.getLog(d).study || {}; st.behavedDifferently = !st.behavedDifferently; S.patchLog(d, { study: st }); render(); };
+    appEl.querySelectorAll('[data-beh]').forEach(function (b) {
+      b.onclick = function () {
+        var v = b.getAttribute('data-beh'), st = S.getLog(d).study || {};
+        // 'unknown' DELETES the key — absent is the honest record of "never asked"
+        if (v === 'unknown') { if ('behavedDifferently' in st) delete st.behavedDifferently; }
+        else st.behavedDifferently = (v === 'yes');
+        S.patchLog(d, { study: st }); render();
+      };
+    });
     var hc = appEl.querySelector('#hcfilter'); if (hc) hc.onclick = function () { state._studyHC = !state._studyHC; render(); };
     appEl.querySelectorAll('[data-rate]').forEach(function (b) { b.onclick = function () { state._studyRate = b.getAttribute('data-rate'); render(); }; });
   }
@@ -1554,6 +1624,18 @@
       '<div class="card"><h3>Energy &amp; attractiveness acquired</h3>' +
         bar('Chi · energy now', m.chi, 'm-chi') + bar('Vitality · body', m.vitality, 'm-vit') +
         bar('Willpower · discipline', m.willpower, 'm-will') + bar('Presence · aura', m.presence, 'm-pres') +
+        // increment 12 — a structural ceiling must never read as weak character:
+        // the willpower scale reserves points for urges banked as they hit, so a
+        // week with few banked cannot read high however perfectly it was held.
+        // Self-silences once the scale can actually reach a fair number.
+        (function () {
+          try {
+            var banked = E.urgesInWindow(today()), cap = E.willpowerCeiling(banked);
+            if (cap >= 60) return '';
+            return '<div class="tiny faint" style="margin-top:8px">Willpower can only reach <b>' + cap + '</b> this week — the rest of that scale is reserved for urges <i>banked as they hit</i>, and ' +
+              (banked ? 'only ' + banked + ' was' : 'none were') + ' banked in the last ' + CFG.meters.windowDays + ' days. A low bar here is the URGE button going unused, not weak character.</div>';
+          } catch (eW) { return ''; }
+        })() +
         '<div class="divider"></div><table style="width:100%;font-size:13px">' +
         '<tr><td class="muted">Lifetime energy banked (Chi)</td><td style="text-align:right"><b>' + perf.totalChi.toLocaleString() + '</b></td></tr>' +
         '<tr><td class="muted">Streak permanence</td><td style="text-align:right"><b>' + aura.normStreak + '%</b></td></tr>' +
