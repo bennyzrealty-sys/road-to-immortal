@@ -483,6 +483,8 @@
       // increment 9 — due/chase milestones: every action clears today's plate
       case 'goalchase': q = p.label.replace(/^Chase: /, '') + ' — the reply is owed. Chase it?'; ctrls = cpBtn('goal-chase', 'Chased ✓', 'gold', p.mealKey) + cpBtn('goal-reply', 'Reply received', 'cyan', p.mealKey); break;
       case 'goalms': q = p.label.replace(/^Due: /, '') + ' — due today.'; ctrls = cpBtn('goal-msdone', 'Done ✓', 'gold', p.mealKey) + cpBtn('go-goals', 'The Ascent', ''); break;
+      // increment 16 — patch step-down day: acknowledging IS the action (new patch on)
+      case 'patch': q = p.label + '. Expect a 2-3 day echo of week one — walk, early night, zero negotiation.'; ctrls = cpBtn('patch-ack', 'New patch on ✓', 'gold') + cpBtn('go-nicotine', 'The Unchaining', ''); break;
     }
     return '<div class="coach-primary"><div class="cp-q">' + esc(q) + '</div>' + (ctrls ? '<div class="cp-ctrls">' + ctrls + '</div>' : '') + '</div>';
   }
@@ -578,6 +580,8 @@
         if (a === 'go-nutrition') { state.tab = 'nutrition'; window.scrollTo(0, 0); render(); return; }
         if (a === 'go-log') { state.tab = 'log'; window.scrollTo(0, 0); render(); return; }
         if (a === 'go-goals') { state.tab = 'goals'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'go-nicotine') { state.tab = 'nicotine'; window.scrollTo(0, 0); render(); return; }
+        if (a === 'patch-ack') { S.setMeta({ lastStepAckISO: d }); toast('Stepped down. The schedule carries you.'); if (!reducedMotion()) celebrateSmall(); render(); return; }
         // increment 7 — one-tap "done" on an ambition task (task id rides in data-mk)
         if (a === 'goal-done') {
           var gtid = b.getAttribute('data-mk');
@@ -617,6 +621,7 @@
           render(); return;
         }
         if (k === 'goalchase' || k === 'goalms') { state.tab = 'goals'; window.scrollTo(0, 0); render(); return; }
+        if (k === 'patch') { state.tab = 'nicotine'; window.scrollTo(0, 0); render(); return; }
       };
     });
   }
@@ -1225,6 +1230,13 @@
           costPerDay: cost === '' ? null : +cost,
           patchPlan: planPick === '14' ? [{ mg: 14, days: 42 }, { mg: 7, days: 14 }] : null
         });
+        // increment 16 — the taper becomes a campaign on The Ascent: dated
+        // step-down milestones + the daily "patch on + zero pouches" task,
+        // inheriting the coach agenda / road-ahead / adherence for free.
+        try {
+          var tpl = window.RTI_NICOTINE && RTI_NICOTINE.goalTemplate();
+          if (tpl && window.RTI_GOALS) RTI_GOALS.installTemplate(tpl, today());
+        } catch (eT) {}
         toast('The Unchaining begins. The URGE button now knows both wolves.');
         render();
       };
@@ -2672,6 +2684,8 @@
         '<div style="margin-top:8px"><span class="pill" style="border:1px solid ' + col + '66;color:' + col + '">' + esc(r.band) + '</span></div>' +
         (rows ? '<div style="text-align:left;margin-top:12px">' + rows + '</div>' :
           '<p class="faint tiny" style="margin-top:12px">No named pressures tonight — the base rate alone.</p>') +
+        ((r.factors || []).some(function (f) { return f.id === 'withdrawal' || f.id === 'stepdown'; }) ?
+          '<div class="tiny muted" style="margin-top:10px">Nicotine withdrawal and the PMO habit share the mood wire — a dip this week raises both risks. One walk answers both.</div>' : '') +
         '<div class="tiny faint" style="margin-top:10px">Association, not fate — the score reads your own ledger, never the future.</div>' +
       '</div>';
     } else {

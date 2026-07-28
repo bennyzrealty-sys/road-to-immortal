@@ -548,6 +548,19 @@
         }
       }
     } catch (eG) {}
+    // increment 16 — The Unchaining: a patch step-down is a real-world deadline.
+    // Only fires ON the step-down day; "done" = the owner acknowledged it today
+    // (meta.lastStepAckISO) — acknowledging IS the honest action (new patch on).
+    try {
+      var NIC = global.RTI_NICOTINE;
+      if (NIC && S.getNicotine().enabled) {
+        var sd = NIC.isStepDownDay(asOf);
+        if (sd) {
+          var ackd = S.getMeta().lastStepAckISO === asOf;
+          push('patch', 'patch', sd.mg > 0 ? 'Step down: ' + sd.mg + 'mg patch from today' : 'Patch off today — running free', ackd, { timely: true });
+        }
+      }
+    } catch (eN) {}
 
     var total = items.length, done = items.filter(function (it) { return it.done; }).length;
     var pending = items.filter(function (it) { return !it.done && !it.blocked; });
@@ -558,7 +571,7 @@
     // other meter in this app rests on it and it is the least-logged field
     // there is — but NOT above day-type/plan, which gate the whole meal chain
     // and are the day's shaping decision rather than a record of last night.
-    var prio = { clean: 0, goalchase: 0.4, goalms: 0.5, daytype: 1, plan: 2, sleep: 2.5, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
+    var prio = { clean: 0, goalchase: 0.4, goalms: 0.5, patch: 0.6, daytype: 1, plan: 2, sleep: 2.5, meal: 3, goaltask: 4, move: 5, breath: 6, med: 7, mood: 8, targets: 9 };
     pending.sort(function (a, b) {
       var at = a.timely ? 0 : 1, bt = b.timely ? 0 : 1;
       if (at !== bt) return at - bt;
@@ -893,6 +906,30 @@
 
     // tonight is a rota night shift (caller passes the kind id or null)
     if (rotaKindId === 'night') add('nightShift', 'Night shift tonight', fc.nightShift.weight);
+
+    // increment 16 — nicotine withdrawal pressure. Reads the store directly
+    // (same doctrine as urges/relapses above); silently absent if unconfigured.
+    try {
+      var wd = fc.withdrawal, nic = S.getNicotine();
+      if (wd && nic.enabled && nic.quitDateISO) {
+        var dsq = U.daysBetween(nic.quitDateISO, asOf);
+        if (dsq >= wd.fromDay && dsq <= wd.toDay) {
+          add('withdrawal', 'Nicotine withdrawal window (day ' + dsq + ')', wd.weight);
+        } else if (nic.patchStartISO) {
+          // small echo for a few days after each step-down (incl. patch-off)
+          var plan = nic.patchPlan || CFG.nicotine.patchPlan, cursor = nic.patchStartISO;
+          for (var wi = 0; wi < plan.length; wi++) {
+            var stepStart = cursor;
+            cursor = U.addDays(cursor, plan[wi].days);
+            if (wi === 0) continue; // plan start is the quit itself, covered above
+            var since = U.daysBetween(stepStart, asOf);
+            if (since >= 0 && since < wd.stepDownDays) { add('stepdown', 'Patch stepped down ' + (since === 0 ? 'today' : since + 'd ago'), wd.stepDownWeight); break; }
+          }
+          var sinceOff = U.daysBetween(cursor, asOf);
+          if (sinceOff >= 0 && sinceOff < wd.stepDownDays) add('stepdown', 'Patch came off ' + (sinceOff === 0 ? 'today' : sinceOff + 'd ago'), wd.stepDownWeight);
+        }
+      }
+    } catch (eW) {}
 
     // protection: the streak itself, and shields held (negative deltas)
     var sp = fc.streakProtect;

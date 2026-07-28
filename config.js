@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v23 · Increment 15',
+    appVersion: 'v24 · Increment 16',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -692,6 +692,10 @@
       nightShift: { weight: 8 },                     // tonight is a rota night shift
       streakProtect: { ref: 60, weight: 30 },        // protection grows with streak toward ref days
       shieldProtect: { perShield: 4 },
+      // increment 16 — nicotine withdrawal pressure: the acute window after
+      // quitting, and a smaller echo after each patch step-down. The two
+      // habits share the mood wire — the forecast must know when it is hot.
+      withdrawal: { fromDay: 2, toDay: 7, weight: 12, stepDownDays: 3, stepDownWeight: 6 },
       bands: { elevated: 35, high: 60 }              // score < elevated → 'low'
     },
 

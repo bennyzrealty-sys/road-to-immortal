@@ -1216,5 +1216,36 @@ var NIC = global.RTI_NICOTINE;
   check('missing keys default off/empty', S.getNicotine().enabled + '|' + S.getCravings().length, 'false|0');
 })();
 
+/* =================== INCREMENT 16 — UNCHAINING INTEGRATIONS =================== */
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var st2 = S.getSettings();
+
+  // foresight: withdrawal window days 2-7, silent at day 30, echo after step-down
+  function factorIds(asOf) { return E.riskForecast(st2, asOf, 23, null).factors.map(function (f) { return f.id; }); }
+  check('withdrawal factor at quit+3', factorIds('2026-07-31').indexOf('withdrawal') >= 0, true);
+  check('no withdrawal factor at quit+30', factorIds('2026-08-27').indexOf('withdrawal') >= 0, false);
+  check('stepdown echo the day after 2026-09-08', factorIds('2026-09-09').indexOf('stepdown') >= 0, true);
+  check('no stepdown echo 5 days after', factorIds('2026-09-13').indexOf('stepdown') >= 0, false);
+
+  // coach agenda: patch item on the step-down day only; ack marks it done
+  function agendaKinds(asOf) { return E.dailyAgenda(st2, asOf, 9).items.map(function (it) { return it.kind; }); }
+  check('agenda carries patch item on 2026-09-08', agendaKinds('2026-09-08').indexOf('patch') >= 0, true);
+  check('no patch item on an ordinary day', agendaKinds('2026-09-09').indexOf('patch') >= 0, false);
+  S.setMeta({ lastStepAckISO: '2026-09-08' });
+  var patchItem = E.dailyAgenda(st2, '2026-09-08', 9).items.filter(function (it) { return it.kind === 'patch'; })[0];
+  check('acknowledged step-down shows done', patchItem.done, true);
+
+  // the taper installs as a campaign, idempotently
+  var G = global.RTI_GOALS, NIC2 = global.RTI_NICOTINE;
+  var r1 = G.installTemplate(NIC2.goalTemplate(), '2026-07-28');
+  check('taper campaign installs', r1.ok, true);
+  check('campaign carries 5 milestones', r1.goal.milestones.length, 5);
+  check('daily task rides along', r1.goal.tasks[0].cadence, 'daily');
+  var r2 = G.installTemplate(NIC2.goalTemplate(), '2026-07-29');
+  check('second install refuses (idempotent)', r2.ok + '|' + r2.reason, 'false|installed');
+})();
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
