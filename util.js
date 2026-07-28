@@ -105,6 +105,19 @@
     return { slope: slope, intercept: intercept };
   }
 
+  // Exponentially-weighted moving average. null/NaN entries carry the previous
+  // smoothed value forward (a missed weigh-in must not bend the curve).
+  function ewma(values, alpha) {
+    var out = [], prev = null;
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      if (v == null || isNaN(v)) { out.push(prev); continue; }
+      prev = (prev == null) ? +v : prev + alpha * (+v - prev);
+      out.push(prev);
+    }
+    return out;
+  }
+
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -114,6 +127,6 @@
   global.RTI_UTIL = {
     toISO: toISO, todayISO: todayISO, fromISO: fromISO, daysBetween: daysBetween,
     addDays: addDays, clamp: clamp, round: round, pearson: pearson, spearman: spearman,
-    rankAvg: rankAvg, linreg: linreg, escapeHtml: escapeHtml
+    rankAvg: rankAvg, linreg: linreg, ewma: ewma, escapeHtml: escapeHtml
   };
 })(typeof window !== 'undefined' ? window : this);

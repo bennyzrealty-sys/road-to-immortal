@@ -13,7 +13,7 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js', 'body.js', 'nicotine.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
@@ -1088,6 +1088,164 @@ check('urgesInWindow counts only the meter window', E.urgesInWindow('2026-07-24'
 check('config: increment 12 tunables exist',
   (global.RTI_CONFIG.practice.fadeMinFalling >= 1) + '|' + (global.RTI_CONFIG.practice.preregMinDays >= 1) + '|' +
   (global.RTI_CONFIG.practice.sleepNudgeMeanBelow > 0), 'true|true|true');
+
+/* =================== INCREMENT 13 — THE VESSEL =================== */
+var BODY = global.RTI_BODY;
+
+// ewma: smooths, carries nulls forward, seeds on first value
+(function () {
+  var sm = U.ewma([100, null, 98], 0.25);
+  check('ewma seeds on first value', sm[0], 100);
+  check('ewma carries null forward', sm[1], 100);
+  near('ewma smooths toward new value', sm[2], 99.5, 0.01);
+})();
+
+// pure math: bmi, deurenberg, calibration offset
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+near('bmi @ baseline (168cm)', BODY.bmi(100.3, 168), 35.54, 0.02);
+near('deurenberg @ baseline', BODY.deurenbergPct(35.54, 35, 'male'), 34.5, 0.15);
+near('fat offset calibrates to machine scan', BODY.fatOffset(st), -5.0, 0.2);
+(function () {
+  // estimate at the baseline weight must reproduce the machine reading
+  S.setSettings({ currentWeightKg: 100.3 });
+  var est = BODY.fatPctEstimate(S.getSettings(), '2026-05-08');
+  near('estimate == machine reading at baseline', est.fatPct, 29.5, 0.2);
+  S.setSettings({ currentWeightKg: null });
+})();
+
+// seeded descent 100.3 -> 94.15: rate, verdict, progress, ETA, physique
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  // weekly weigh-ins descending ~0.53kg/wk across 11 weeks (2026-05-11 .. 2026-07-27)
+  for (var i = 0; i <= 11; i++) {
+    var d = U.addDays('2026-05-11', i * 7);
+    S.patchLog(d, { weightKg: Math.round((100.3 - 0.5321 * i) * 100) / 100 });
+  }
+  var s2 = S.getSettings(), asOf = '2026-07-28';
+  var sum = BODY.summary(s2, asOf);
+  check('weight series includes baseline + logs', sum.series.length, 13);
+  near('descent rate ~ -0.53 kg/wk', BODY.rateKgPerWeek(s2, asOf), -0.53, 0.08);
+  check('rate verdict: on-pace inside 0.5-1%/wk', sum.rate.band, 'on-pace');
+  near('progress toward 80kg ~ 30%', sum.progressPct, 30, 3);
+  check('eta exists and lands in 2027', !!(sum.eta && sum.eta.dateISO.slice(0, 4) === '2027'), true);
+  check('physique gate present with a live date', !!(sum.physique && sum.physique.dateISO), true);
+  check('physique target below current weight', sum.physique.targetKg < sum.currentKg, true);
+  // the covenant: a new weigh-in MOVES the predicted date (live recompute)
+  var before = sum.physique.dateISO;
+  S.patchLog('2026-07-28', { weightKg: 93.2 });
+  var after = BODY.summary(S.getSettings(), asOf).physique.dateISO;
+  check('new weigh-in moves the physique date', before !== after, true);
+})();
+
+// weightKg survives the export -> wipe -> import round-trip
+(function () {
+  var bundle = S.exportBundle();
+  S.wipeAll();
+  var res = S.importBundle(bundle);
+  check('bundle with weightKg imports ok', res.ok, true);
+  check('weightKg survives round-trip', S.getLog('2026-07-28').weightKg, 93.2);
+})();
+
+// fresh-store safety: no logged weigh-ins -> summary stands on the baseline
+// scan alone (CFG default), no rate, no ETA, and never throws
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  var sum = BODY.summary(S.getSettings(), '2026-06-09');
+  check('fresh store: baseline-only, no error', !sum.error && sum.currentKg === 100.3 && sum.rate == null && sum.eta == null, true);
+})();
+
+/* =================== INCREMENT 15 — THE UNCHAINING =================== */
+var NIC = global.RTI_NICOTINE;
+
+// schedule dates from a 2026-07-28 patch start (21/42 · 14/14 · 7/14)
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var sc = NIC.schedule('2026-07-28');
+  check('patch step 1 is 21mg', sc.current.mg, 21);
+  check('step down to 14mg on 2026-09-08', sc.steps[1].startISO, '2026-09-08');
+  check('step down to 7mg on 2026-09-22', sc.steps[2].startISO, '2026-09-22');
+  check('patch off 2026-10-06', sc.patchOffISO, '2026-10-06');
+  check('step-down day detected', !!NIC.isStepDownDay('2026-09-08'), true);
+  check('ordinary day is not a step-down', NIC.isStepDownDay('2026-09-09'), null);
+  // timeline rungs
+  check('day 0 -> The Switch', NIC.timelineStage('2026-07-28').current.name, 'The Switch');
+  check('day 3 -> The Peak', NIC.timelineStage('2026-07-31').current.name, 'The Peak');
+  check('day 45 -> First Step-Down', NIC.timelineStage('2026-09-11').current.name, 'First Step-Down');
+  // goal template derives the same dates
+  var tpl = NIC.goalTemplate();
+  check('template milestones carry step-down dates',
+    tpl.milestones[1].targetISO + '|' + tpl.milestones[3].targetISO, '2026-09-08|2026-10-06');
+  // moneySaved never invents a price
+  check('moneySaved null without costPerDay', NIC.moneySaved('2026-08-05'), null);
+  S.setNicotine({ costPerDay: 5 });
+  check('moneySaved = cost x days', NIC.moneySaved('2026-08-05'), 40);
+})();
+
+// streak-economy isolation: cravings must not move willpower / streak / urges
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  for (var i = 0; i < 10; i++) S.patchLog(U.addDays('2026-07-10', i), { clean: true, breathingMin: 10 });
+  var st2 = S.getSettings();
+  var wpBefore = E.metersAsOf(st2, '2026-07-20').willpower;
+  var skBefore = E.streakAsOf(st2, '2026-07-20').current;
+  var urgesBefore = S.getUrges().length;
+  S.bankCraving(Date.parse('2026-07-19T22:00:00Z'), '2026-07-19', true);
+  S.bankCraving(Date.parse('2026-07-20T09:00:00Z'), '2026-07-20', true);
+  S.bankCraving(Date.parse('2026-07-20T14:00:00Z'), '2026-07-20', true);
+  check('cravings never touch willpower', E.metersAsOf(st2, '2026-07-20').willpower, wpBefore);
+  check('cravings never touch the streak', E.streakAsOf(st2, '2026-07-20').current, skBefore);
+  check('cravings never masquerade as urges', S.getUrges().length, urgesBefore);
+  var cs = NIC.cravingStats('2026-07-20');
+  check('craving stats count the ledger', cs.total + '|' + cs.ridden + '|' + cs.last7, '3|3|3');
+})();
+
+// nicotine + cravings survive export -> wipe -> import; old backups still import
+(function () {
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var bundle = S.exportBundle();
+  S.wipeAll();
+  var res = S.importBundle(bundle);
+  check('bundle with nicotine imports ok', res.ok, true);
+  check('nicotine state survives round-trip', S.getNicotine().quitDateISO, '2026-07-28');
+  check('cravings survive round-trip', S.getCravings().length, 3);
+  // an old backup (no nicotine keys) must import clean with defaults
+  var old = S.exportBundle(); delete old.nicotine; delete old.cravings;
+  S.wipeAll();
+  check('pre-increment backup still imports', S.importBundle(old).ok, true);
+  check('missing keys default off/empty', S.getNicotine().enabled + '|' + S.getCravings().length, 'false|0');
+})();
+
+/* =================== INCREMENT 16 — UNCHAINING INTEGRATIONS =================== */
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var st2 = S.getSettings();
+
+  // foresight: withdrawal window days 2-7, silent at day 30, echo after step-down
+  function factorIds(asOf) { return E.riskForecast(st2, asOf, 23, null).factors.map(function (f) { return f.id; }); }
+  check('withdrawal factor at quit+3', factorIds('2026-07-31').indexOf('withdrawal') >= 0, true);
+  check('no withdrawal factor at quit+30', factorIds('2026-08-27').indexOf('withdrawal') >= 0, false);
+  check('stepdown echo the day after 2026-09-08', factorIds('2026-09-09').indexOf('stepdown') >= 0, true);
+  check('no stepdown echo 5 days after', factorIds('2026-09-13').indexOf('stepdown') >= 0, false);
+
+  // coach agenda: patch item on the step-down day only; ack marks it done
+  function agendaKinds(asOf) { return E.dailyAgenda(st2, asOf, 9).items.map(function (it) { return it.kind; }); }
+  check('agenda carries patch item on 2026-09-08', agendaKinds('2026-09-08').indexOf('patch') >= 0, true);
+  check('no patch item on an ordinary day', agendaKinds('2026-09-09').indexOf('patch') >= 0, false);
+  S.setMeta({ lastStepAckISO: '2026-09-08' });
+  var patchItem = E.dailyAgenda(st2, '2026-09-08', 9).items.filter(function (it) { return it.kind === 'patch'; })[0];
+  check('acknowledged step-down shows done', patchItem.done, true);
+
+  // the taper installs as a campaign, idempotently
+  var G = global.RTI_GOALS, NIC2 = global.RTI_NICOTINE;
+  var r1 = G.installTemplate(NIC2.goalTemplate(), '2026-07-28');
+  check('taper campaign installs', r1.ok, true);
+  check('campaign carries 5 milestones', r1.goal.milestones.length, 5);
+  check('daily task rides along', r1.goal.tasks[0].cadence, 'daily');
+  var r2 = G.installTemplate(NIC2.goalTemplate(), '2026-07-29');
+  check('second install refuses (idempotent)', r2.ok + '|' + r2.reason, 'false|installed');
+})();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

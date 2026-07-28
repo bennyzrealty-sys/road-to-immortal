@@ -8,7 +8,7 @@
    user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v20';
+var CACHE = 'rti-shell-v24';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -24,6 +24,8 @@ var SHELL = [
   './oracle.js',
   './sync.js',
   './goals.js',
+  './body.js',
+  './nicotine.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',
@@ -31,7 +33,9 @@ var SHELL = [
   './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
-  './icons/favicon-32.png'
+  './icons/favicon-32.png',
+  './motivation/m1.jpg',
+  './motivation/m2.jpg'
 ];
 // heavy MediaPipe assets (vendored, offline) — precached BEST-EFFORT so a slow
 // network can't fail the whole install. The cache-first fetch handler below
