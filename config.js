@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v21 · Increment 13',
+    appVersion: 'v22 · Increment 14',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -785,6 +785,11 @@
       // BODY-FAT gate — visible-abs territory. Reaching it is the lean half of
       // that physique; the muscle half is built in the gym over the same months.
       physique: { targetFatPct: 12, label: 'The Physique' },
+      // increment 14 — the reference photos, shown with LIVE progress burned on
+      motivation: {
+        images: ['./motivation/m1.jpg', './motivation/m2.jpg'],  // rotates daily
+        line: 'The destination exists. Walk.'
+      },
       guidance: {
         title: 'Fuel for the cut — what the evidence favours',
         footer: 'Observation only. This app tracks adherence to YOUR plan — it never prescribes intake.',

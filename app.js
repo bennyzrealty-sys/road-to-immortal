@@ -1109,7 +1109,20 @@
       g.entries.map(function (e2) { return '<div style="margin-bottom:10px"><b class="tiny" style="color:var(--gold-soft)">' + esc(e2.title) + '</b><div class="tiny muted">' + esc(e2.body) + '</div></div>'; }).join('') +
       '<div class="tiny faint">' + esc(g.footer) + '</div></div>';
 
-    var html = '<div class="screen">' + header('The Vessel') + hero +
+    // increment 14 — the reference photo with LIVE progress burned onto it.
+    // Every number here is recomputed per render: log a weigh-in, the card moves.
+    var motCard = '';
+    if (CFG.body.motivation && CFG.body.motivation.images && CFG.body.motivation.images.length && hasData) {
+      var img = dailyPick(CFG.body.motivation.images);
+      var ph2 = sum.physique;
+      motCard = '<div class="mcard" style="margin-bottom:12px"><img src="' + esc(img) + '" alt="The destination">' +
+        '<div class="mcap"><b>' + Math.round(sum.progressPct || 0) + '%</b> <span class="mrow" style="display:inline">of the road walked</span>' +
+        '<div class="mrow">' + sum.kgDown + ' kg down · ' + sum.kgToGo + ' kg to ' + r.goalWeightKg + '</div>' +
+        (ph2 && !ph2.reached && ph2.dateISO ? '<div class="mdate">This physique gate (' + ph2.targetFatPct + '% fat): predicted <b style="font-size:14px">' + esc(ph2.dateISO) + '</b></div>' : '') +
+        '<div class="mdate">' + esc(CFG.body.motivation.line) + '</div></div></div>';
+    }
+
+    var html = '<div class="screen">' + header('The Vessel') + hero + motCard +
       (hasData ? chart + rateCard + etaCard + fatCard + phCard : '') + ladderCard + guidanceCard +
       '<div class="tiny faint" style="margin:6px 4px 12px">Height ' + r.heightCm + ' cm · goal ' + r.goalWeightKg + ' kg · baseline scan editable in Settings → Body context.</div>' +
     '</div>';
