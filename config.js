@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v22 · Increment 14',
+    appVersion: 'v23 · Increment 15',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -592,6 +592,17 @@
         'The deepest power move is to be genuinely fine if it goes nowhere.',
         'Hold your standard quietly and the room re-calibrates to you, not you to it.'
       ],
+      // increment 15 — The Unchaining: lines for the craving rider + Codex tab
+      withdrawal: [
+        'The wave is four minutes wide. You are five hundred days deep.',
+        'The patch holds the chemistry. You only have to hold the habit.',
+        'A craving is a memory asking to be re-recorded. Let it play out unanswered.',
+        'You already tapered extra-strong down to three dots on your own. This is the same stair — one more step.',
+        'Fifteen years built the loop. Four minutes at a time unbuilds it.',
+        'The mouth wants a ritual, not the drug. Give it water, give it breath.',
+        'Every wave you ride makes the next one smaller. None of them lasts.',
+        'Two wolves will sometimes howl together. Feed neither. Walk.'
+      ],
       // Codex: presence & self-mastery — original, dark-academia.
       // Framed as becoming magnetic THROUGH self-mastery, never tactics.
       codex: [
@@ -802,6 +813,72 @@
             body: 'Protein at every meal, the 1hr walk on slip days, progressive lifting 3-4×/week, sleep 7+. Your loss rate is already inside the healthy band — the plan is working. Do not change the engine mid-climb; feed it.' }
         ]
       }
+    },
+
+    /* ==== INCREMENT 15 — THE UNCHAINING — nicotine withdrawal ==============
+       Fifteen years of nicotine pouches (Velo — self-tapered from extra
+       strong down to 3-dot already) end with a patch-assisted run-out.
+       Doctrine: the app tracks the plan the OWNER sets — durations and doses
+       here are editable defaults, and dosing questions belong to a
+       pharmacist, never to this file. Cravings live in their own ledger and
+       never touch the streak / Chi / Willpower economy. */
+    nicotine: {
+      productDefault: 'Velo nicotine pouches (3-dot)',
+      // Patch step-down. Standard boxed course; owner edits to match what the
+      // pharmacist actually hands over. Coming from a MID-strength pouch
+      // (3-dot after a self-taper), starting at 14mg is a reasonable ask —
+      // see education entry 'Patch basics'.
+      patchPlan: [ { mg: 21, days: 42 }, { mg: 14, days: 14 }, { mg: 7, days: 14 } ],
+      cravingSecs: 240,          // a craving crests and passes in 3-5 minutes
+      // Withdrawal timeline — same shape as CFG.stages, reach = days since quit.
+      timeline: [
+        { reach: 0,  name: 'The Switch',        power: 'day 0',
+          body: 'Pouches out, patch on. Steady nicotine through the skin — no more spike-and-crash training the craving loop. The habit starts starving today, not you.',
+          cues: [ 'Bin the tin, or make it a 20-minute walk away. Friction is an ally.',
+                  'You already walked extra-strong down to 3-dot. This is the same stair.' ] },
+        { reach: 1,  name: 'First Waves',       power: 'day 1-2',
+          body: 'Pouch nicotine clears the blood within ~48h. Cravings arrive as short waves — three to five minutes, then gone whether you act or not.',
+          cues: [ 'Ride each one with the 4-minute timer. Count waves ridden, not hours left.',
+                  'Water, gum, sunflower seeds — the mouth misses the ritual more than the drug.' ] },
+        { reach: 3,  name: 'The Peak',          power: 'day 3-7',
+          body: 'Peak irritability and the mood dip. This is chemistry, not character — your mood log will show the dip and then show it lifting.',
+          cues: [ 'A low-mood day here is a HIGH-RISK day for the other habit too. The URGE button covers both wolves.',
+                  'If sleep frays or dreams get loud, patch off at night — ask the pharmacist.' ] },
+        { reach: 7,  name: 'The Turn',          power: 'week 2',
+          body: 'The acute wave crests and eases. Energy and focus start returning. The patch dose stays steady — no freelancing the plan.',
+          cues: [ 'Cravings now come from PLACES and MOMENTS, not the blood. Notice which ones.' ] },
+        { reach: 14, name: 'Loops Loosen',      power: 'week 3-5',
+          body: 'The trigger moments — after meals, breaks, driving — fire weaker each pass. Fewer cravings, but ambushes still happen.',
+          cues: [ 'An ambush craving is a memory, not a relapse. Four minutes, same as ever.' ] },
+        { reach: 42, name: 'First Step-Down',   power: 'week 6',
+          body: 'The patch steps down on schedule. A small echo of week one may return for 2-3 days — expected, milder, temporary.',
+          cues: [ 'Treat step-down days like day 3: extra walk, early night, zero negotiation.' ] },
+        { reach: 70, name: 'Running Free',      power: 'week 10',
+          body: 'Last patch comes off. From here it is habit archaeology, not chemistry.',
+          cues: [ 'The tin stays dead. One pouch re-records every loop you erased.' ] },
+        { reach: 90, name: 'Receptors Home',    power: 'day 90+',
+          body: 'Nicotinic receptor density is back near never-user levels. What remains is story — and you have outlived it.',
+          cues: [] }
+      ],
+      // education cards — same {title, look, mean, carry} shape as CFG.signals
+      education: [
+        { title: 'What a craving actually is',
+          look: 'A rising urgency — restlessness, the mouth waters, attention narrows to the tin that is not there. Peaks inside 3-5 minutes.',
+          mean: 'A conditioned dopamine prediction firing on an old cue. It is not a need: the patch is already supplying the nicotine. The wave passes whether you act or not.',
+          carry: 'Start the 4-minute rider. Move, breathe, let it crest. Every ridden wave weakens the next one.' },
+        { title: 'The mood dip (days 3-7)',
+          look: 'Irritability, flat mood, short fuse — sharpest in the first week, echoing for a few days after each patch step-down.',
+          mean: 'Withdrawal chemistry, on a known schedule. It is the same low-mood signal your relapse Foresight already watches — the two systems share one wire.',
+          carry: 'Log mood honestly. Treat any dip day as high-risk for BOTH habits: walk, early night, no negotiations after 22:00.' },
+        { title: 'Patch basics',
+          look: 'One patch on from day one, replaced daily, rotate skin sites. You came from a MID-strength pouch (3-dot) after already tapering from extra strong.',
+          mean: 'Steady-state delivery removes the spike-crash cycle that trains cravings. Because your current pouch is mid-strength, 14mg may be the right starting patch rather than 21mg.',
+          carry: 'Confirm the starting dose with a pharmacist — it is a 30-second question — then set the plan in this screen and let the schedule carry you.' },
+        { title: 'The two wolves',
+          look: 'A nicotine craving and a PMO urge arriving together — usually late, alone, tired, screen in hand.',
+          mean: 'Shared circuitry: stress relief through dopamine. One giving way opens the door for the other; your relapse history and your craving log will show the overlap.',
+          carry: 'The URGE button now asks which wolf it is. Either way the answer is identical: timer, breath, leave the room.' }
+      ]
     }
   };
 

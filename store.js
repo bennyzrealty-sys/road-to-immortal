@@ -25,8 +25,12 @@
                                 //   deliberately NOT part of the export bundle
     mentor:   'rti_mentor_v1',  // last pulled mentor/insights.json (device-local)
     goals:    'rti_goals_v1',   // { goals: [...] } — ambitions/milestones/tasks (increment 7)
-    templates:'rti_templates_v1'// pulled PRIVATE template registry (device-local,
+    templates:'rti_templates_v1',// pulled PRIVATE template registry (device-local,
                                 //   never in the export — content stays out of git)
+    nicotine: 'rti_nicotine_v1',// { enabled, quitDateISO, patchStartISO, ... } (increment 15)
+    cravings: 'rti_cravings_v1' // [{ ts, date, rode }] — nicotine cravings. SEPARATE
+                                //   from urges ON PURPOSE: cravings must never touch
+                                //   the streak / Chi / Willpower economy
   };
   var SCHEMA = 1;
 
@@ -259,6 +263,39 @@
     return getGoals();
   }
 
+  /* ---------------- Nicotine (increment 15 — The Unchaining) ---------------- */
+  function defaultNicotine() {
+    return {
+      enabled: false,
+      quitDateISO: null,          // last pouch day + 1 / patch day 1
+      patchStartISO: null,        // usually == quitDateISO
+      product: '',                // e.g. 'Velo nicotine pouches (3-dot)'
+      usesPerDayBaseline: null,   // pouches/day before quitting — owner enters
+      costPerDay: null,           // owner enters; moneySaved stays null until then
+      patchPlan: null             // [{mg, days}] — null -> CFG.nicotine.patchPlan
+    };
+  }
+  function getNicotine() {
+    var r = read(K.nicotine, null);
+    if (!r) { r = defaultNicotine(); write(K.nicotine, r); }
+    var d = defaultNicotine(), out = {};
+    for (var k in d) out[k] = (r[k] === undefined ? d[k] : r[k]);
+    return out;
+  }
+  function setNicotine(patch) {
+    var r = getNicotine();
+    for (var k in patch) r[k] = patch[k];
+    write(K.nicotine, r);
+    return r;
+  }
+  function getCravings() { return read(K.cravings, []); }
+  function bankCraving(tsMs, dateISO, rode) {
+    var list = getCravings();
+    list.push({ ts: tsMs, date: dateISO, rode: rode !== false });
+    write(K.cravings, list);
+    return list;
+  }
+
   /* ---------------- Meta (app bookkeeping, not "truth") ---------------- */
   function getMeta() {
     return read(K.meta, { lastSeenRankIndex: -1, lastExportISO: null, prereg: '', preregLocked: false });
@@ -282,7 +319,9 @@
       urges: getUrges(),
       meta: getMeta(),
       rota: getRota(),
-      goals: getGoals()
+      goals: getGoals(),
+      nicotine: getNicotine(),
+      cravings: getCravings()
     };
   }
   // a real, non-null, non-array object (typeof null === 'object' is the trap)
@@ -302,13 +341,16 @@
     ok = write(K.relapses, Array.isArray(obj.relapses) ? obj.relapses : []) && ok;
     ok = write(K.urges, Array.isArray(obj.urges) ? obj.urges : []) && ok;
     ok = write(K.meta, isObj(obj.meta) ? obj.meta : prev.meta) && ok;
-    // rota / goals are optional so older backups never fail to import
+    // rota / goals / nicotine / cravings are optional so older backups never fail to import
     ok = write(K.rota, isObj(obj.rota) ? obj.rota : defaultRota()) && ok;
     ok = write(K.goals, isObj(obj.goals) && Array.isArray(obj.goals.goals) ? obj.goals : defaultGoals()) && ok;
+    ok = write(K.nicotine, isObj(obj.nicotine) ? obj.nicotine : defaultNicotine()) && ok;
+    ok = write(K.cravings, Array.isArray(obj.cravings) ? obj.cravings : []) && ok;
     if (!ok) {
       write(K.settings, prev.settings); write(K.logs, prev.logs);
       write(K.relapses, prev.relapses); write(K.urges, prev.urges);
       write(K.meta, prev.meta); write(K.rota, prev.rota); write(K.goals, prev.goals);
+      write(K.nicotine, prev.nicotine); write(K.cravings, prev.cravings);
       return { ok: false, error: 'Import failed part-way (storage full?). Your previous data was restored.' };
     }
     return { ok: true };
@@ -333,6 +375,8 @@
     getMentor: getMentor, setMentor: setMentor,
     getTemplates: getTemplates, setTemplates: setTemplates,
     defaultGoals: defaultGoals, getGoals: getGoals, setGoals: setGoals,
+    defaultNicotine: defaultNicotine, getNicotine: getNicotine, setNicotine: setNicotine,
+    getCravings: getCravings, bankCraving: bankCraving,
     exportBundle: exportBundle, importBundle: importBundle, wipeAll: wipeAll
   };
   global.RTI_STORE = api;

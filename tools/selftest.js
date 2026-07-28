@@ -13,7 +13,7 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js', 'body.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js', 'body.js', 'nicotine.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
@@ -1152,6 +1152,68 @@ near('fat offset calibrates to machine scan', BODY.fatOffset(st), -5.0, 0.2);
   S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
   var sum = BODY.summary(S.getSettings(), '2026-06-09');
   check('fresh store: baseline-only, no error', !sum.error && sum.currentKg === 100.3 && sum.rate == null && sum.eta == null, true);
+})();
+
+/* =================== INCREMENT 15 — THE UNCHAINING =================== */
+var NIC = global.RTI_NICOTINE;
+
+// schedule dates from a 2026-07-28 patch start (21/42 · 14/14 · 7/14)
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var sc = NIC.schedule('2026-07-28');
+  check('patch step 1 is 21mg', sc.current.mg, 21);
+  check('step down to 14mg on 2026-09-08', sc.steps[1].startISO, '2026-09-08');
+  check('step down to 7mg on 2026-09-22', sc.steps[2].startISO, '2026-09-22');
+  check('patch off 2026-10-06', sc.patchOffISO, '2026-10-06');
+  check('step-down day detected', !!NIC.isStepDownDay('2026-09-08'), true);
+  check('ordinary day is not a step-down', NIC.isStepDownDay('2026-09-09'), null);
+  // timeline rungs
+  check('day 0 -> The Switch', NIC.timelineStage('2026-07-28').current.name, 'The Switch');
+  check('day 3 -> The Peak', NIC.timelineStage('2026-07-31').current.name, 'The Peak');
+  check('day 45 -> First Step-Down', NIC.timelineStage('2026-09-11').current.name, 'First Step-Down');
+  // goal template derives the same dates
+  var tpl = NIC.goalTemplate();
+  check('template milestones carry step-down dates',
+    tpl.milestones[1].targetISO + '|' + tpl.milestones[3].targetISO, '2026-09-08|2026-10-06');
+  // moneySaved never invents a price
+  check('moneySaved null without costPerDay', NIC.moneySaved('2026-08-05'), null);
+  S.setNicotine({ costPerDay: 5 });
+  check('moneySaved = cost x days', NIC.moneySaved('2026-08-05'), 40);
+})();
+
+// streak-economy isolation: cravings must not move willpower / streak / urges
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  for (var i = 0; i < 10; i++) S.patchLog(U.addDays('2026-07-10', i), { clean: true, breathingMin: 10 });
+  var st2 = S.getSettings();
+  var wpBefore = E.metersAsOf(st2, '2026-07-20').willpower;
+  var skBefore = E.streakAsOf(st2, '2026-07-20').current;
+  var urgesBefore = S.getUrges().length;
+  S.bankCraving(Date.parse('2026-07-19T22:00:00Z'), '2026-07-19', true);
+  S.bankCraving(Date.parse('2026-07-20T09:00:00Z'), '2026-07-20', true);
+  S.bankCraving(Date.parse('2026-07-20T14:00:00Z'), '2026-07-20', true);
+  check('cravings never touch willpower', E.metersAsOf(st2, '2026-07-20').willpower, wpBefore);
+  check('cravings never touch the streak', E.streakAsOf(st2, '2026-07-20').current, skBefore);
+  check('cravings never masquerade as urges', S.getUrges().length, urgesBefore);
+  var cs = NIC.cravingStats('2026-07-20');
+  check('craving stats count the ledger', cs.total + '|' + cs.ridden + '|' + cs.last7, '3|3|3');
+})();
+
+// nicotine + cravings survive export -> wipe -> import; old backups still import
+(function () {
+  S.setNicotine({ enabled: true, quitDateISO: '2026-07-28', patchStartISO: '2026-07-28' });
+  var bundle = S.exportBundle();
+  S.wipeAll();
+  var res = S.importBundle(bundle);
+  check('bundle with nicotine imports ok', res.ok, true);
+  check('nicotine state survives round-trip', S.getNicotine().quitDateISO, '2026-07-28');
+  check('cravings survive round-trip', S.getCravings().length, 3);
+  // an old backup (no nicotine keys) must import clean with defaults
+  var old = S.exportBundle(); delete old.nicotine; delete old.cravings;
+  S.wipeAll();
+  check('pre-increment backup still imports', S.importBundle(old).ok, true);
+  check('missing keys default off/empty', S.getNicotine().enabled + '|' + S.getCravings().length, 'false|0');
 })();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

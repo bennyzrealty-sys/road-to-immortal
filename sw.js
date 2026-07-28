@@ -8,7 +8,7 @@
    user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v22';
+var CACHE = 'rti-shell-v23';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -25,6 +25,7 @@ var SHELL = [
   './sync.js',
   './goals.js',
   './body.js',
+  './nicotine.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',

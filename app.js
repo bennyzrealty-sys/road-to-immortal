@@ -250,36 +250,26 @@
     setTimeout(function () { b.remove(); }, 1100);
   }
 
-  /* =================== URGE INTERVENTION (section 7) =================== */
-  function openUrge() {
-    var snap = E.snapshot(today());
-    var dangerQuote = dailyPick(CFG.quotes.dangerWindow);
-    var fallFrom = snap.rank.current ? snap.rank.current.name : '—';
+  /* =================== URGE INTERVENTION (section 7) ===================
+     increment 15: the ride-it-out flow is parameterized so the PMO urge and
+     the nicotine craving share one engine. openUrge() keeps its exact
+     historical behavior; openCraving() is the 4-minute wave rider. */
+  function openIntervention(cfg) {
     var ov = h(
       '<div class="overlay">' +
-        '<div class="day-num">HOLD THE LINE</div>' +
-        '<p class="muted" style="max-width:340px">' + esc(dangerQuote) + '</p>' +
-        '<div class="mini-meter" style="margin-top:6px">' +
-          '<div class="meter m-chi"><div class="lbl"><span>Chi if you give in</span><b id="u-chi">' + snap.meters.chi + '</b></div>' +
-          '<div class="bar drain"><i id="u-chibar" style="width:' + snap.meters.chi + '%"></i></div></div>' +
-          '<div class="tiny faint" style="margin-top:8px">Streak <b id="u-streak" style="color:#ff8aa8">' + snap.streak.current + '</b> → 0 · you would fall from <b style="color:var(--gold-soft)">' + esc(fallFrom) + '</b></div>' +
-        '</div>' +
+        '<div class="day-num">' + cfg.headline + '</div>' +
+        '<p class="muted" style="max-width:340px">' + esc(cfg.quote) + '</p>' +
+        (cfg.stakes || '') +
         '<div class="breath run" id="u-breath">breathe</div>' +
-        '<div class="timer" id="u-timer">ride it out · 90s</div>' +
-        '<button class="btn gold full" style="max-width:340px;margin-top:18px" data-x="bank">Still here — urge passing</button>' +
+        '<div class="timer" id="u-timer">ride it out · ' + cfg.seconds + 's</div>' +
+        '<button class="btn gold full" style="max-width:340px;margin-top:18px" data-x="bank">' + cfg.bankLabel + '</button>' +
         '<button class="btn ghost sm" style="margin-top:10px;color:var(--ink-faint)" data-x="leave">leave quietly</button>' +
       '</div>');
     document.body.appendChild(ov);
+    if (cfg.afterOpen) cfg.afterOpen(ov);
 
-    // loss-aversion drain preview after a beat
-    setTimeout(function () {
-      var bar = ov.querySelector('#u-chibar'), chiv = ov.querySelector('#u-chi'), st = ov.querySelector('#u-streak');
-      var drained = Math.round(snap.meters.chi * CFG.meters.chi.relapseDampen);
-      if (bar) { bar.style.width = drained + '%'; chiv.textContent = drained; st.textContent = '0'; }
-    }, 1400);
-
-    // breathing pace text + 90s timer (early bank allowed)
-    var left = 90, breath = ov.querySelector('#u-breath'), timer = ov.querySelector('#u-timer');
+    // breathing pace text + countdown (early bank allowed)
+    var left = cfg.seconds, breath = ov.querySelector('#u-breath'), timer = ov.querySelector('#u-timer');
     var phase = ['breathe in', 'hold', 'breathe out'], pi = 0;
     var bi = setInterval(function () { if (breath) breath.textContent = phase[pi++ % phase.length]; }, 3000);
     var ti = setInterval(function () { left--; if (timer) timer.textContent = left > 0 ? 'ride it out · ' + left + 's' : 'the wave has passed'; if (left <= 0) clearInterval(ti); }, 1000);
@@ -289,20 +279,83 @@
     ov.querySelector('[data-x=leave]').onclick = cleanup;
     ov.querySelector('[data-x=bank]').onclick = function () {
       clearInterval(bi); clearInterval(ti); ov._cleanup = null;
-      S.bankUrge(Date.now(), today());
-      // victory + reward (what you'd miss + quote) using live stats
-      var s2 = E.snapshot(today());
-      var miss = fill(dailyPick(CFG.quotes.miss), s2);
-      ov.innerHTML =
-        '<div class="day-num" style="color:var(--good)">URGE RESISTED · BANKED</div>' +
-        '<div class="breath" style="border-color:rgba(91,224,160,.6);background:radial-gradient(circle,rgba(91,224,160,.35),transparent 70%);color:#bdf5d8">✓</div>' +
-        '<h2 style="color:var(--good)">+1 Willpower</h2>' +
-        '<p class="muted" style="max-width:340px">' + esc(miss) + '</p>' +
-        '<p class="codex-quote" style="font-size:17px;max-width:360px">' + esc(fill(dailyPick(CFG.quotes.daily), s2)) + '</p>' +
-        '<button class="btn gold" data-x="done">Return stronger</button>';
+      ov.innerHTML = cfg.onBank();
       ov.querySelector('[data-x=done]').onclick = function () { ov.remove(); render(); };
       if (!reducedMotion()) celebrateSmall();
     };
+  }
+  function openUrge() {
+    var snap = E.snapshot(today());
+    var fallFrom = snap.rank.current ? snap.rank.current.name : '—';
+    openIntervention({
+      headline: 'HOLD THE LINE',
+      quote: dailyPick(CFG.quotes.dangerWindow),
+      seconds: 90,
+      bankLabel: 'Still here — urge passing',
+      stakes:
+        '<div class="mini-meter" style="margin-top:6px">' +
+          '<div class="meter m-chi"><div class="lbl"><span>Chi if you give in</span><b id="u-chi">' + snap.meters.chi + '</b></div>' +
+          '<div class="bar drain"><i id="u-chibar" style="width:' + snap.meters.chi + '%"></i></div></div>' +
+          '<div class="tiny faint" style="margin-top:8px">Streak <b id="u-streak" style="color:#ff8aa8">' + snap.streak.current + '</b> → 0 · you would fall from <b style="color:var(--gold-soft)">' + esc(fallFrom) + '</b></div>' +
+        '</div>',
+      afterOpen: function (ov) {
+        // loss-aversion drain preview after a beat
+        setTimeout(function () {
+          var bar = ov.querySelector('#u-chibar'), chiv = ov.querySelector('#u-chi'), st = ov.querySelector('#u-streak');
+          var drained = Math.round(snap.meters.chi * CFG.meters.chi.relapseDampen);
+          if (bar) { bar.style.width = drained + '%'; chiv.textContent = drained; st.textContent = '0'; }
+        }, 1400);
+      },
+      onBank: function () {
+        S.bankUrge(Date.now(), today());
+        // victory + reward (what you'd miss + quote) using live stats
+        var s2 = E.snapshot(today());
+        var miss = fill(dailyPick(CFG.quotes.miss), s2);
+        return '<div class="day-num" style="color:var(--good)">URGE RESISTED · BANKED</div>' +
+          '<div class="breath" style="border-color:rgba(91,224,160,.6);background:radial-gradient(circle,rgba(91,224,160,.35),transparent 70%);color:#bdf5d8">✓</div>' +
+          '<h2 style="color:var(--good)">+1 Willpower</h2>' +
+          '<p class="muted" style="max-width:340px">' + esc(miss) + '</p>' +
+          '<p class="codex-quote" style="font-size:17px;max-width:360px">' + esc(fill(dailyPick(CFG.quotes.daily), s2)) + '</p>' +
+          '<button class="btn gold" data-x="done">Return stronger</button>';
+      }
+    });
+  }
+  // increment 15 — the nicotine wave rider. Deliberately NO chi/streak stakes:
+  // cravings live outside the streak economy, and the overlay must not lie.
+  function openCraving() {
+    openIntervention({
+      headline: 'RIDE THE WAVE',
+      quote: dailyPick(CFG.quotes.withdrawal),
+      seconds: CFG.nicotine.cravingSecs,
+      bankLabel: 'Wave ridden — it passed',
+      stakes: '<div class="tiny faint" style="margin-top:4px;max-width:320px">A craving crests and dies inside 3-5 minutes whether you act or not. The patch is already carrying the chemistry — this is only the habit howling.</div>',
+      onBank: function () {
+        S.bankCraving(Date.now(), today(), true);
+        var N = window.RTI_NICOTINE, stats = N ? N.cravingStats(today()) : null, saved = N ? N.moneySaved(today()) : null;
+        return '<div class="day-num" style="color:var(--good)">WAVE RIDDEN</div>' +
+          '<div class="breath" style="border-color:rgba(98,216,255,.6);background:radial-gradient(circle,rgba(98,216,255,.3),transparent 70%);color:#c9ecff">✓</div>' +
+          '<h2 style="color:var(--good)">' + (stats ? stats.ridden : 1) + ' wave' + (stats && stats.ridden === 1 ? '' : 's') + ' outlasted</h2>' +
+          '<p class="muted" style="max-width:340px">Every ridden wave weakens the next. The loop is starving.' +
+          (saved != null ? ' · <b style="color:var(--gold-soft)">' + saved + '</b> saved so far.' : '') + '</p>' +
+          '<button class="btn gold" data-x="done">Return stronger</button>';
+      }
+    });
+  }
+  // FAB chooser: with the nicotine module off, the URGE button behaves exactly
+  // as it always has. With it on, one honest tap picks the wolf.
+  function openUrgeChooser() {
+    if (!S.getNicotine().enabled) { openUrge(); return; }
+    var ov = h('<div class="overlay">' +
+      '<div class="day-num">WHICH WOLF?</div>' +
+      '<button class="btn gold full" style="max-width:340px;margin-top:16px" data-x="pmo">🔥 PMO urge</button>' +
+      '<button class="btn cyan full" style="max-width:340px;margin-top:10px" data-x="nic">⛓ Nicotine craving</button>' +
+      '<button class="btn ghost sm" style="margin-top:14px;color:var(--ink-faint)" data-x="leave">leave quietly</button>' +
+    '</div>');
+    document.body.appendChild(ov);
+    ov._cleanup = function () { ov.remove(); };
+    ov.querySelector('[data-x=leave]').onclick = function () { ov.remove(); };
+    ov.querySelector('[data-x=pmo]').onclick = function () { ov.remove(); openUrge(); };
+    ov.querySelector('[data-x=nic]').onclick = function () { ov.remove(); openCraving(); };
   }
   function celebrateSmall() {
     var c = document.getElementById('fx'), ctx = c.getContext('2d'); c.width = innerWidth; c.height = innerHeight;
@@ -800,7 +853,7 @@
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
-      '<button class="btn ghost full" data-go="body" style="margin-top:10px">🏺 The Vessel — weight · fat · the descent to goal</button>' +
+      '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="body">🏺 The Vessel</button><button class="btn ghost" data-go="nicotine">⛓ The Unchaining</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="sanctum">🕉 Sanctum</button><button class="btn ghost" data-go="mentor">🧙 The Mentor' + navDot(navMentorUnread()) + '</button></div>' +
     '</div>';
@@ -1127,6 +1180,135 @@
       '<div class="tiny faint" style="margin:6px 4px 12px">Height ' + r.heightCm + ' cm · goal ' + r.goalWeightKg + ' kg · baseline scan editable in Settings → Body context.</div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
+  }
+
+  /* ---- THE UNCHAINING (increment 15) — nicotine run-out ---- */
+  function screenNicotine() {
+    var N = window.RTI_NICOTINE;
+    if (!N) { appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Unchaining') + '<div class="card"><p class="faint">Nicotine module failed to load.</p></div></div>')); return; }
+    var n = N.state(), html;
+
+    if (!n.enabled) {
+      // setup — the owner sets the plan; the app only carries it
+      html = '<div class="screen">' + header('The Unchaining') +
+        '<div class="card"><h3>Fifteen years end here</h3>' +
+          '<p class="tiny muted">Velo extra strong → 3-dot was already a taper — you have done this before. Now the patch carries the chemistry while the habit starves. Set the plan; the road does the rest.</p>' +
+          '<label class="field"><span>Product you are leaving</span><input type="text" id="nic-prod" value="' + esc(n.product) + '"></label>' +
+          '<label class="field"><span>Pouches per day (baseline)</span><input type="number" id="nic-uses" value="' + (n.usesPerDayBaseline != null ? n.usesPerDayBaseline : '') + '" placeholder="e.g. 8"></label>' +
+          '<label class="field"><span>Cost per day (your currency)</span><input type="number" id="nic-cost" value="' + (n.costPerDay != null ? n.costPerDay : '') + '" placeholder="optional — powers money saved"></label>' +
+          '<label class="field"><span>Quit date (last pouch + 1)</span><input type="date" id="nic-quit" value="' + esc(today()) + '"></label>' +
+          '<div class="tiny muted" style="margin:6px 0 4px">Patch course (confirm the start dose with a pharmacist — 30 seconds):</div>' +
+          '<div class="seg" id="nic-plan">' +
+            '<button data-plan="21" class="on">21mg standard</button>' +
+            '<button data-plan="14">Start at 14mg</button>' +
+          '</div>' +
+          '<div class="tiny faint" style="margin-top:6px">21mg: 6wk → 14mg 2wk → 7mg 2wk. Starting at 14mg (reasonable coming from a mid-strength pouch): 6wk → 7mg 2wk.</div>' +
+          '<button class="btn gold full" id="nic-begin" style="margin-top:12px">⛓ Begin the Unchaining</button>' +
+        '</div>' +
+        eduCards() +
+      '</div>';
+      appEl.innerHTML = ''; appEl.appendChild(h(html));
+      var planPick = '21';
+      appEl.querySelectorAll('#nic-plan [data-plan]').forEach(function (b) {
+        b.onclick = function () {
+          planPick = b.getAttribute('data-plan');
+          appEl.querySelectorAll('#nic-plan [data-plan]').forEach(function (x) { x.className = x === b ? 'on' : ''; });
+        };
+      });
+      appEl.querySelector('#nic-begin').onclick = function () {
+        var quit = appEl.querySelector('#nic-quit').value || today();
+        var uses = appEl.querySelector('#nic-uses').value, cost = appEl.querySelector('#nic-cost').value;
+        S.setNicotine({
+          enabled: true, quitDateISO: quit, patchStartISO: quit,
+          product: appEl.querySelector('#nic-prod').value || CFG.nicotine.productDefault,
+          usesPerDayBaseline: uses === '' ? null : +uses,
+          costPerDay: cost === '' ? null : +cost,
+          patchPlan: planPick === '14' ? [{ mg: 14, days: 42 }, { mg: 7, days: 14 }] : null
+        });
+        toast('The Unchaining begins. The URGE button now knows both wolves.');
+        render();
+      };
+      return;
+    }
+
+    var d = today(), days = N.daysSinceQuit(d), sc = N.schedule(d), stage = N.timelineStage(d);
+    var stats = N.cravingStats(d), saved = N.moneySaved(d), moods = N.moodOverlay(d);
+
+    // hero
+    var patchLine = sc && sc.done
+      ? 'Patch off — running free since ' + sc.patchOffISO
+      : sc && sc.current
+        ? 'Patch: <b>' + sc.current.mg + 'mg</b> · steps down ' + (sc.next ? 'to ' + sc.next.mg + 'mg' : 'to 0') + ' on <b>' + sc.nextStepDownISO + '</b>'
+        : 'Patch plan starts ' + (n.patchStartISO || '—');
+    var hero = '<div class="card today-hero">' +
+      '<div class="day-num">Nicotine-free</div>' +
+      '<div style="font-size:44px;font-weight:700;color:var(--gold-soft)">' + (days != null ? days : '—') + '</div>' +
+      '<div class="tiny faint">day' + (days === 1 ? '' : 's') + ' since the last pouch</div>' +
+      '<div class="rank-sub" style="margin-top:8px">' + patchLine + '</div>' +
+      (stage ? '<div class="tiny muted" style="margin-top:6px">Stage: <b style="color:var(--gold-soft)">' + esc(stage.current.name) + '</b> · ' + esc(stage.current.power) + '</div>' : '') +
+      '<button class="btn cyan full" id="nic-crave" style="margin-top:14px">🌊 Craving — ride the 4-minute wave</button>' +
+    '</div>';
+
+    // schedule card (real dates from the owner's plan)
+    var schedRows = sc ? sc.steps.map(function (st2) {
+      var done = d > st2.endISO, cur = d >= st2.startISO && d <= st2.endISO;
+      return '<div class="pstage' + (cur ? ' cur' : done ? ' done' : ' locked') + '"><div class="ps-head">' +
+        '<span class="ps-n">' + st2.mg + 'mg</span><span class="ps-meta">' + st2.startISO + ' → ' + st2.endISO + (cur ? ' · now' : done ? ' · ✓' : '') + '</span></div></div>';
+    }).join('') + '<div class="pstage' + (sc.done ? ' done' : ' locked') + '"><div class="ps-head"><span class="ps-n">0mg — free</span><span class="ps-meta">from ' + sc.patchOffISO + '</span></div></div>' : '';
+    var schedCard = sc ? '<div class="card"><h3>The step-down schedule</h3>' + schedRows +
+      '<div class="tiny faint" style="margin-top:6px">Your plan, your dates. Doses are what you set — a pharmacist confirms them, the app only keeps the calendar honest.</div></div>' : '';
+
+    // withdrawal timeline ladder
+    var ladder = CFG.nicotine.timeline.map(function (st2, i) {
+      var reached = days != null && days >= st2.reach, cur = stage && i === stage.index;
+      return '<div class="pstage' + (cur ? ' cur' : reached ? ' done' : ' locked') + '">' +
+        '<div class="ps-head"><span class="ps-n">' + esc(st2.name) + '</span><span class="ps-meta">' + (reached ? (cur ? 'you are here' : '✓ crossed') : 'day ' + st2.reach + '+') + ' · ' + esc(st2.power) + '</span></div>' +
+        '<div class="ps-body tiny muted">' + esc(st2.body) + '</div>' +
+        (st2.cues.length ? '<ul class="cues">' + st2.cues.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>' : '') + '</div>';
+    }).join('');
+    var ladderCard = '<div class="card"><h3>The withdrawal road</h3>' + ladder + '</div>';
+
+    // cravings histogram (same shape as the danger window)
+    var byHour = stats.byHour, peakC = byHour.indexOf(Math.max.apply(null, byHour));
+    var hourItems = byHour.map(function (v, i) { return { label: (i % 3 === 0 ? i : ''), value: v }; });
+    var craveCard = '<div class="card"><h3>Craving map</h3>' + (stats.total
+      ? '<div class="stand"><div class="st"><b>' + stats.ridden + '</b><span>waves ridden</span></div><div class="st"><b>' + stats.last7 + '</b><span>last 7 days</span></div></div>' +
+        barChart(hourItems, '#62d8ff') +
+        '<div class="tiny muted">Cravings cluster around <b>' + peakC + ':00</b>. Pre-plan that hour: water, walk, breath.</div>'
+      : '<p class="faint tiny">No cravings ridden yet. Each one you outlast is mapped here — the hours will show their pattern.</p>') + '</div>';
+
+    // money
+    var moneyCard = saved != null
+      ? '<div class="card"><h3>Ransom recovered</h3><p><b style="font-size:30px;color:var(--gold-soft)">' + saved + '</b></p><div class="tiny faint">' + n.costPerDay + '/day × ' + days + ' days no longer paid to the tin.</div></div>'
+      : '';
+
+    // mood vs quit-day
+    var moodPts = moods.map(function (m2) { return { x: m2.x, y: m2.mood }; });
+    var moodCard = '<div class="card"><h3>Mood through withdrawal</h3>' +
+      lineChart(moodPts, '#c98bff', { min: 1, max: 5, xlabel: 'day since quit', ylabel: 'mood' }) +
+      '<div class="tiny faint">Days 3-7 dip, then climb — chemistry on a schedule. A dip day is a high-risk day for BOTH habits; the Foresight knows.</div></div>';
+
+    // adjust / pause
+    var adminCard = '<div class="card"><h3>Adjust</h3>' +
+      '<label class="field"><span>Cost per day</span><input type="number" id="nic-cost2" value="' + (n.costPerDay != null ? n.costPerDay : '') + '"></label>' +
+      '<button class="btn ghost sm" id="nic-pause" style="color:#ff8aa8">Pause the module (keeps all history)</button></div>';
+
+    html = '<div class="screen">' + header('The Unchaining') + hero + schedCard + ladderCard + craveCard + moneyCard + moodCard + eduCards() + adminCard + '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+    appEl.querySelector('#nic-crave').onclick = openCraving;
+    appEl.querySelector('#nic-cost2').addEventListener('change', function (e) { S.setNicotine({ costPerDay: e.target.value === '' ? null : +e.target.value }); });
+    appEl.querySelector('#nic-pause').onclick = function () {
+      if (confirm('Pause The Unchaining? History and cravings are kept; the URGE button goes back to one wolf.')) { S.setNicotine({ enabled: false }); render(); }
+    };
+  }
+  // education cards — CFG.signals entry shape, shared by setup and live views
+  function eduCards() {
+    return '<div class="card"><h3>Know the enemy</h3>' + CFG.nicotine.education.map(function (e2) {
+      return '<div class="signal"><h4>' + esc(e2.title) + '</h4>' +
+        '<div class="sig-row"><span class="sig-k">Looks like</span><p>' + esc(e2.look) + '</p></div>' +
+        '<div class="sig-row"><span class="sig-k">What it means</span><p>' + esc(e2.mean) + '</p></div>' +
+        '<div class="sig-row carry"><span class="sig-k">Carry yourself</span><p>' + esc(e2.carry) + '</p></div></div>';
+    }).join('') + '</div>';
   }
 
   /* ---- ASCENSION / ENERGY BANK (increment 2, Part 1) ---- */
@@ -1693,7 +1875,7 @@
   function screenCodex() {
     var snap = E.snapshot(today());
     var mode = state._codexMode || 'daily';
-    var setArr = mode === 'recovery' ? CFG.quotes.recovery : mode === 'danger' ? CFG.quotes.dangerWindow : mode === 'dark' ? CFG.quotes.dark : CFG.quotes.daily;
+    var setArr = mode === 'recovery' ? CFG.quotes.recovery : mode === 'danger' ? CFG.quotes.dangerWindow : mode === 'dark' ? CFG.quotes.dark : mode === 'withdrawal' ? CFG.quotes.withdrawal : CFG.quotes.daily;
     var quote = mode === 'daily' ? fill(dailyPick(setArr), snap) : dailyPick(setArr);
     var principles = CFG.quotes.codex.map(function (p) { return '<div class="principle"><h4>' + esc(p.title) + '</h4><p>' + esc(p.body) + '</p></div>'; }).join('');
     var html = '<div class="screen">' + header('Codex') +
@@ -1701,7 +1883,8 @@
         '<button data-cx="daily" class="' + (mode === 'daily' ? 'on' : '') + '">Daily</button>' +
         '<button data-cx="recovery" class="' + (mode === 'recovery' ? 'on' : '') + '">Recovery</button>' +
         '<button data-cx="danger" class="' + (mode === 'danger' ? 'on' : '') + '">Danger hour</button>' +
-        '<button data-cx="dark" class="' + (mode === 'dark' ? 'on' : '') + '">Dark</button></div>' +
+        '<button data-cx="dark" class="' + (mode === 'dark' ? 'on' : '') + '">Dark</button>' +
+        '<button data-cx="withdrawal" class="' + (mode === 'withdrawal' ? 'on' : '') + '">Withdrawal</button></div>' +
         '<div class="codex-quote">' + esc(quote) + '</div>' +
         (mode === 'dark' ? '<div class="tiny faint center" style="margin-top:8px">Power <b>over the self</b>, not over others. Turned on people, these become a cage — for you.</div>' : '') +
       '</div>' +
@@ -3360,7 +3543,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals, mentor: screenMentor, body: screenBody };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals, mentor: screenMentor, body: screenBody, nicotine: screenNicotine };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },
@@ -3469,7 +3652,7 @@
   }
 
   /* =================== INIT =================== */
-  fab.onclick = openUrge;
+  fab.onclick = openUrgeChooser;
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { var ov = document.querySelector('.overlay'); if (ov) { if (ov._cleanup) ov._cleanup(); else ov.remove(); } } });
   if (S.getSettings().reducedMotion) document.body.classList.add('reduce-motion');
   // ask the browser to shield the ledger from storage eviction (Android/desktop
