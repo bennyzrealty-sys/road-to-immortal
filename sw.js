@@ -8,7 +8,7 @@
    user data never goes through here.
    ===================================================================== */
 'use strict';
-var CACHE = 'rti-shell-v20';
+var CACHE = 'rti-shell-v21';
 // core app shell — small, MUST install successfully
 var SHELL = [
   './',
@@ -24,6 +24,7 @@ var SHELL = [
   './oracle.js',
   './sync.js',
   './goals.js',
+  './body.js',
   './app.js',
   './manifest.json',
   './icons/icon-192.png',

@@ -239,7 +239,7 @@
        actually runs. swCheckMinMs throttles the visibility-driven
        registration.update() so foregrounding the PWA all day costs at most a
        few update checks. */
-    appVersion: 'v20 · Increment 12',
+    appVersion: 'v21 · Increment 13',
     sw: { checkMinMs: 60 * 60 * 1000 },
 
     /* ---- Today banners (increment 10) ----
@@ -754,6 +754,49 @@
         'SPEAK — "wisdom" draws a line from the Codex.',
         'I read only this device\'s ledger. Association, not fate — and nothing leaves the room.'
       ]
+    },
+
+    /* ==== INCREMENT 13 — THE VESSEL — the body ledger =====================
+       Weight, body-fat estimate, progress-to-goal. Same covenant as the rest
+       of the file: these are DEFAULTS and tunables. Settings override the
+       personal ones; nothing here is prescribed, only tracked.
+
+       The fat% estimate uses Deurenberg (1.2·BMI + 0.23·age − 10.8·male − 5.4)
+       CALIBRATED to the owner's own machine scan: the offset between formula
+       and machine at the baseline date is derived per read and applied to
+       every estimate, so the curve is consistent with the one real reading.
+       Estimate ≡ machine at baseline, by construction — consistency, not
+       absolute truth, and the UI must say so. */
+    body: {
+      defaultHeightCm: 168,        // owner-stated. The gym machine printed 173
+                                   // (its BMI 33.5 @100.3kg back-solves to 173)
+                                   // — Settings lets the owner pick and keep one.
+      defaultSex: 'male',
+      defaultBirthYear: 1991,      // age is derived per read, never stored
+      defaultGoalWeightKg: 80,     // phase-1 goal; edit in Settings any time
+      baseline: { dateISO: '2026-05-08', weightKg: 100.3, fatPct: 29.5 }, // owner's machine scan (24/7 Fitness receipt)
+      smoothing: { alpha: 0.25 },  // EWMA — daily scale noise dies, trend survives
+      rateWindows: { primaryDays: 28, fallbackDays: 14, minPoints: 3 },
+      deurenberg: { bmiW: 1.2, ageW: 0.23, maleOffset: 10.8, base: 5.4 },
+      healthyRate: { loPctPerWeek: 0.5, hiPctPerWeek: 1.0 }, // % of bodyweight/week — the evidence-backed sustainable band
+      leanLossWarnShare: 0.25,     // warn when >25% of total loss is lean mass
+      milestonesKg: [95, 90, 85, 80],
+      // The physique target (the reference photos): modelled honestly as the
+      // BODY-FAT gate — visible-abs territory. Reaching it is the lean half of
+      // that physique; the muscle half is built in the gym over the same months.
+      physique: { targetFatPct: 12, label: 'The Physique' },
+      guidance: {
+        title: 'Fuel for the cut — what the evidence favours',
+        footer: 'Observation only. This app tracks adherence to YOUR plan — it never prescribes intake.',
+        entries: [
+          { title: 'High-protein, moderate deficit (the road you are on)',
+            body: 'Keeps lean mass while fat drops, supports hard training, and it IS the 7-day plan already in this app. At matched protein and calories, no named diet has shown a meaningful fat-loss advantage over this. The variable that decides everything is adherence — which is the one thing this ledger measures.' },
+          { title: 'Keto — the honest read',
+            body: 'Works only through the same calorie deficit. The fast early scale-drop is mostly water and glycogen, which flatters week one and lies about the trend. For lean-muscle building it makes the protein target harder to hit and high-effort training feel worse. Verdict for this road: not recommended — no switch needed.' },
+          { title: 'What actually moves the needle now',
+            body: 'Protein at every meal, the 1hr walk on slip days, progressive lifting 3-4×/week, sleep 7+. Your loss rate is already inside the healthy band — the plan is working. Do not change the engine mid-climb; feed it.' }
+        ]
+      }
     }
   };
 

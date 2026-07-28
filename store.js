@@ -66,6 +66,11 @@
       displayName: '',
       heightCm: null,
       currentWeightKg: null,
+      sex: null,             // 'male' | 'female' | null — body-fat estimate only
+      birthYear: null,       // age is derived per read, never stored
+      goalWeightKg: null,    // phase goal for The Vessel; CFG.body default applies when null
+      baseline: null,        // { dateISO, weightKg, fatPct } — the owner's machine scan,
+                             //   written ONLY on explicit save in Settings
       dailyTargets: CFG.dailyTargets.slice(),
       lastNutritionTemplate: null,
       mealOverrides: {},     // { templateId: { mealKey: { kcal, protein } } } — owner edits
@@ -103,6 +108,7 @@
                               //   never by hand; engine reads max(steps, stepsAuto)
       kcalBurned: 0,
       fatPct: null,
+      weightKg: null,         // morning weigh-in; null = not weighed (never 0)
       sleepHrs: null,
       workout: null,          // { type, notes } or null
       cardio: null,           // { type, minutes, notes } or null

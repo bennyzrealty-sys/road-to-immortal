@@ -8,6 +8,8 @@
   // increment 4 modules (rota / sanctum / oracle). May be undefined if a script
   // failed to load — every call site guards, showing a note instead of crashing.
   var R = window.RTI_ROTA, SAN = window.RTI_SANCTUM, ORA = window.RTI_ORACLE;
+  // increment 13 — The Vessel (body ledger). Same guard doctrine as above.
+  var B = window.RTI_BODY;
   var appEl = document.getElementById('app');
   var tabsEl = document.getElementById('tabs');
   var fab = document.getElementById('urge-fab');
@@ -798,6 +800,7 @@
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="ascension">🌌 Ascension</button><button class="btn ghost" data-go="photos">📸 Photos</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="power">⚡ Immortal Power</button><button class="btn ghost" data-go="signals">👁 Signals</button></div>' +
       '<button class="btn ghost full" data-go="movement" style="margin-top:10px">🚶 Movement — steps · distance · calories</button>' +
+      '<button class="btn ghost full" data-go="body" style="margin-top:10px">🏺 The Vessel — weight · fat · the descent to goal</button>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="oracle">🔮 Oracle</button><button class="btn ghost" data-go="rota">🗓 Rota</button></div>' +
       '<div class="btn-grid" style="margin-top:10px"><button class="btn ghost" data-go="sanctum">🕉 Sanctum</button><button class="btn ghost" data-go="mentor">🧙 The Mentor' + navDot(navMentorUnread()) + '</button></div>' +
     '</div>';
@@ -893,7 +896,7 @@
       '</div>' +
       '<div class="card"><h3>Energy work</h3>' + num('breathingMin', 'Testicle / energy breathing (min)') + num('meditationMin', 'Meditation (min)') + '</div>' +
       '<div class="card"><h3>Body</h3>' + num('steps', 'Steps', 100) + num('kcalBurned', 'kcal burned', 10) +
-        num('sleepHrs', 'Sleep (hrs)', 0.5) + num('fatPct', 'Body fat % (optional)', 0.1) + '</div>' +
+        num('sleepHrs', 'Sleep (hrs)', 0.5) + num('weightKg', 'Weight (kg, morning)', 0.05) + num('fatPct', 'Body fat % (optional)', 0.1) + '</div>' +
       '<div class="card"><h3>Training</h3>' +
         '<label class="field"><span>Workout (free-form, no prescriptions)</span><input type="text" data-f="workoutType" value="' + esc(log.workout ? log.workout.type : '') + '" placeholder="e.g. push day, calisthenics"></label>' +
         '<label class="field"><span>Cardio type</span><input type="text" data-f="cardioType" value="' + esc(log.cardio ? log.cardio.type : '') + '" placeholder="e.g. walk, run"></label>' +
@@ -931,8 +934,8 @@
       S.patchLog(d, { cardio: (c.type || c.minutes != null) ? c : null }); return;
     }
     if (f === 'notes') { S.patchLog(d, { notes: v }); return; }
-    var numFields = { breathingMin: 1, meditationMin: 1, steps: 1, kcalBurned: 1, sleepHrs: 1, fatPct: 1 };
-    if (numFields[f]) { S.patchLog(d, mkPatch(f, v === '' ? (f === 'fatPct' || f === 'sleepHrs' ? null : 0) : +v)); return; }
+    var numFields = { breathingMin: 1, meditationMin: 1, steps: 1, kcalBurned: 1, sleepHrs: 1, fatPct: 1, weightKg: 1 };
+    if (numFields[f]) { S.patchLog(d, mkPatch(f, v === '' ? (f === 'fatPct' || f === 'sleepHrs' || f === 'weightKg' ? null : 0) : +v)); return; }
   }
 
   /* ---- ROAD / RANK ladder ---- */
@@ -981,6 +984,9 @@
     // fat% trend
     var fatPts = [];
     S.logsArray().forEach(function (lg) { if (lg.fatPct != null) fatPts.push({ x: E.dayNumber(s, lg.date), y: lg.fatPct }); });
+    // weight trend (increment 13 — raw weigh-ins; the Vessel screen holds the smoothed story)
+    var wPts = [], bodySum = B ? B.summary(s, today()) : null;
+    S.logsArray().forEach(function (lg) { if (lg.weightKg != null) wPts.push({ x: E.dayNumber(s, lg.date), y: lg.weightKg }); });
     // danger window (urge timestamps by hour)
     var urges = S.getUrges(), byHour = new Array(24).fill(0);
     urges.forEach(function (u) { var hr = new Date(u.ts).getHours(); byHour[hr]++; });
@@ -998,9 +1004,114 @@
       '<div class="card"><h3>Weekly breathing (min)</h3>' + barChart(breathByWeek, '#62d8ff') + '</div>' +
       '<div class="card"><h3>Body fat % trend</h3>' + lineChart(fatPts, '#ffce6a', { trend: true, xlabel: 'day', ylabel: 'fat %' }) +
         '<div class="tiny faint">Bodyweight alone lies — trust the monthly scan. Fat down + lean flat = muscle proof.</div></div>' +
+      '<div class="card"><h3>Weight trend</h3>' + lineChart(wPts, '#5be0a0', { trend: true, xlabel: 'day', ylabel: 'kg' }) +
+        (bodySum && bodySum.rate ? '<div class="tiny muted">' + Math.abs(bodySum.rate.rateKgPerWeek).toFixed(2) + ' kg/week (' + bodySum.rate.pctPerWeek + '% BW) — <b>' +
+          (bodySum.rate.band === 'on-pace' ? 'inside' : bodySum.rate.band === 'faster' ? 'above' : 'below') + '</b> the healthy 0.5–1%/week band. Full story in 🏺 The Vessel.</div>'
+          : '<div class="tiny faint">Log morning weigh-ins in the Daily Log — the trend builds here.</div>') + '</div>' +
       '<div class="card"><h3>Danger window</h3>' + (urges.length ? barChart(hourItems, '#ff7aa8') +
         '<div class="tiny muted">Most urges cluster around <b>' + peak + ':00</b>. Plan that hour: move the body, leave the room.</div>' :
         '<p class="faint tiny">No resisted urges banked yet. Each one you ride out is mapped here.</p>') + '</div>' +
+    '</div>';
+    appEl.innerHTML = ''; appEl.appendChild(h(html));
+  }
+
+  /* ---- THE VESSEL (increment 13) — weight · fat · descent to goal ---- */
+  function screenBody() {
+    if (!B) { appEl.innerHTML = ''; appEl.appendChild(h('<div class="screen">' + header('The Vessel') + '<div class="card"><p class="faint">Body module failed to load.</p></div></div>')); return; }
+    var s = S.getSettings(), sum = B.summary(s, today()), r = sum.resolved || {};
+    var hasData = sum.currentKg != null;
+
+    var hero = hasData
+      ? '<div class="card today-hero">' +
+          '<div class="day-num">The Descent</div>' +
+          miniRing(Math.round(sum.progressPct || 0)) +
+          '<div class="rank-sub" style="margin-top:8px"><b style="color:var(--gold-soft)">' + sum.kgDown + ' kg down</b> · ' + sum.kgToGo + ' kg to ' + r.goalWeightKg + '</div>' +
+          '<div class="tiny faint" style="margin-top:6px">From ' + (r.baseline ? r.baseline.weightKg : '—') + ' kg (' + (r.baseline ? r.baseline.dateISO : '—') + ') · now ' + sum.currentKg + ' kg · BMI ' + (sum.bmi != null ? sum.bmi : '—') + '</div>' +
+          (sum.lastRaw && sum.lastRaw.src === 'settings' ? '<div class="tiny muted" style="margin-top:6px">Reading from Settings — log a real morning weigh-in in the Daily Log to start the true curve.</div>' : '') +
+        '</div>'
+      : '<div class="card"><h3>No weigh-ins yet</h3><p class="tiny muted">Log a morning weight in the Daily Log (Body card) and the descent begins here.</p></div>';
+
+    // chart: smoothed curve (the story), dashed trend from lineChart
+    var pts = (sum.series || []).map(function (p, i) { return { x: i + 1, y: p.smooth != null ? p.smooth : p.kg }; });
+    var chart = '<div class="card"><h3>Weight — the smoothed truth</h3>' + lineChart(pts, '#5be0a0', { trend: true, xlabel: 'weigh-in', ylabel: 'kg' }) +
+      '<div class="tiny faint">Daily scale noise is smoothed away (EWMA) — judge the curve, never one morning.</div></div>';
+
+    // rate vs the healthy band
+    var rateCard = '';
+    if (sum.rate) {
+      var vb = sum.rate.band;
+      var verdictLine = vb === 'on-pace'
+        ? 'Inside the healthy 0.5–1.0%/week band — the strongest evidence-backed pace for keeping muscle while fat drops. Most people who lose this steadily keep it off; crash-cut rates (>1%/wk) rebound.'
+        : vb === 'faster'
+          ? 'Above the 1.0%/week ceiling — faster than the sustainable band. Impressive, but this is where lean mass starts paying the bill. Protein + lifting are non-negotiable this week.'
+          : 'Below the 0.5%/week floor — slower than typical. Not failure: check weigh-in consistency and plan adherence before changing anything.';
+      rateCard = '<div class="card"><h3>Your pace vs the world</h3>' +
+        '<div class="stand">' +
+          '<div class="st"><b>' + Math.abs(sum.rate.rateKgPerWeek).toFixed(2) + '</b><span>kg / week</span></div>' +
+          '<div class="st"><b>' + sum.rate.pctPerWeek + '%</b><span>of BW / week</span></div>' +
+          '<div class="st"><b style="color:' + (vb === 'on-pace' ? 'var(--good)' : vb === 'faster' ? '#ffce6a' : 'var(--cyan)') + '">' + (vb === 'on-pace' ? 'ON PACE' : vb.toUpperCase()) + '</b><span>vs 0.5–1%/wk</span></div>' +
+        '</div><div class="tiny muted" style="margin-top:8px">' + verdictLine + '</div></div>';
+    }
+
+    // ETA
+    var etaCard = sum.eta
+      ? '<div class="card"><h3>Projected arrival</h3><p><b style="font-size:24px;color:var(--gold-soft)">' + esc(sum.eta.dateISO) + '</b></p>' +
+        '<div class="tiny muted">' + r.goalWeightKg + ' kg in ~' + sum.eta.weeks + ' weeks at the current smoothed rate. A projection from lived data — it moves when you do.</div></div>'
+      : (hasData ? '<div class="card"><h3>Projected arrival</h3><p class="tiny faint">No downward trend measurable yet — keep logging weigh-ins.</p></div>' : '');
+
+    // fat / lean estimate
+    var fatCard = '';
+    if (sum.fat) {
+      fatCard = '<div class="card"><h3>Body composition (estimate)</h3>' +
+        '<div class="stand">' +
+          '<div class="st"><b>' + sum.fat.fatPct + '%</b><span>body fat</span></div>' +
+          '<div class="st"><b>' + sum.fat.fatMassKg + '</b><span>fat kg</span></div>' +
+          '<div class="st"><b>' + sum.fat.leanMassKg + '</b><span>lean kg</span></div>' +
+        '</div>' +
+        (sum.lean ? '<div class="tiny ' + (sum.lean.warn ? 'muted' : 'faint') + '" style="margin-top:8px">' +
+          (sum.lean.warn
+            ? '⚠ ~' + Math.round(sum.lean.shareOfLoss * 100) + '% of your loss looks like lean mass — protein and lifting need attention.'
+            : 'Lean mass holding: ~' + Math.round((sum.lean.shareOfLoss) * 100) + '% of the loss is lean — the cut is coming from fat. That is the whole game.') + '</div>' : '') +
+        '<div class="tiny faint" style="margin-top:6px">Deurenberg formula calibrated to your ' + (sum.fat.baselineDate || '—') + ' machine scan (29.5%). An estimate for trend-watching — re-scan monthly to re-anchor it.</div></div>';
+    }
+
+    // the physique gate — predicted date, recomputed from live logs every render
+    var phCard = '';
+    if (sum.physique) {
+      var ph = sum.physique;
+      phCard = '<div class="card"><h3>' + esc(ph.label) + ' — the reference physique</h3>' +
+        (ph.reached
+          ? '<p><b style="color:var(--good)">Gate reached</b> — you are at/below ' + ph.targetFatPct + '% body fat. From here it is pure building.</p>'
+          : '<p>Visible-abs gate: <b>' + ph.targetFatPct + '% body fat</b> ≈ <b>' + ph.targetKg + ' kg</b> at your current lean mass.</p>' +
+            (ph.dateISO
+              ? '<p style="margin-top:6px">Predicted arrival: <b style="font-size:22px;color:var(--gold-soft)">' + esc(ph.dateISO) + '</b> <span class="tiny muted">(~' + ph.weeks + ' weeks at your measured rate)</span></p>'
+              : '<p class="tiny faint" style="margin-top:6px">No downward trend measurable yet — the date appears once weigh-ins build a rate.</p>') +
+            '<div class="tiny faint" style="margin-top:6px">' + ph.kgToGo + ' kg of fat between you and the gate. This date is alive — every weigh-in you log moves it. Honest note: the leanness is the gate; the muscle in those photos is built in the gym across the same months.</div>') +
+        '</div>';
+    }
+
+    // milestone ladder: done = weight at/below the waypoint; cur = first one still ahead
+    var firstAhead = -1;
+    (CFG.body.milestonesKg || []).forEach(function (kg, i) {
+      if (firstAhead === -1 && (!hasData || sum.currentKg > kg)) firstAhead = i;
+    });
+    var ms = (CFG.body.milestonesKg || []).map(function (kg, i) {
+      var reached = hasData && sum.currentKg <= kg, cur = i === firstAhead;
+      return '<div class="pstage' + (cur ? ' cur' : reached ? ' done' : ' locked') + '">' +
+        '<div class="ps-head"><span class="ps-n">' + kg + ' kg</span><span class="ps-meta">' +
+        (reached ? '✓ conquered' : cur ? (hasData ? U.round(sum.currentKg - kg, 1) + ' kg away — the next gate' : 'the next gate') : 'beyond') + '</span></div></div>';
+    }).join('');
+    var ladderCard = '<div class="card"><h3>The waypoints</h3>' + ms + '</div>';
+
+    // diet guidance (informational — the house rule stands)
+    var g = CFG.body.guidance;
+    var guidanceCard = '<div class="card"><h3>' + esc(g.title) + '</h3>' +
+      g.entries.map(function (e2) { return '<div style="margin-bottom:10px"><b class="tiny" style="color:var(--gold-soft)">' + esc(e2.title) + '</b><div class="tiny muted">' + esc(e2.body) + '</div></div>'; }).join('') +
+      '<div class="tiny faint">' + esc(g.footer) + '</div></div>';
+
+    var html = '<div class="screen">' + header('The Vessel') + hero +
+      (hasData ? chart + rateCard + etaCard + fatCard + phCard : '') + ladderCard + guidanceCard +
+      '<div class="tiny faint" style="margin:6px 4px 12px">Height ' + r.heightCm + ' cm · goal ' + r.goalWeightKg + ' kg · baseline scan editable in Settings → Body context.</div>' +
     '</div>';
     appEl.innerHTML = ''; appEl.appendChild(h(html));
   }
@@ -3097,9 +3208,22 @@
         '<button class="btn gold" id="do-backfill">Mark those days clean</button>' +
         '<div class="tiny faint" style="margin-top:8px">Began monk-mode before this app’s start date? Set an earlier start date above first.</div>' +
       '</div>' +
-      '<div class="card"><h3>Body context (optional, fat% only)</h3>' +
-        '<label class="field"><span>Height (cm)</span><input type="number" id="set-h" value="' + (s.heightCm != null ? s.heightCm : '') + '"></label>' +
+      '<div class="card"><h3>Body context — feeds The Vessel</h3>' +
+        '<label class="field"><span>Height (cm)</span><input type="number" id="set-h" value="' + (s.heightCm != null ? s.heightCm : '') + '" placeholder="' + CFG.body.defaultHeightCm + '"></label>' +
+        '<div class="tiny faint" style="margin-bottom:8px">Your gym machine’s BMI 33.5 at 100.3 kg back-solves to 173 cm, not 168. Pick one and keep it — the fat% estimate stays anchored to your scan either way.</div>' +
         '<label class="field"><span>Current weight (kg)</span><input type="number" id="set-w" value="' + (s.currentWeightKg != null ? s.currentWeightKg : '') + '"></label>' +
+        '<label class="field"><span>Birth year</span><input type="number" id="set-by" value="' + (s.birthYear != null ? s.birthYear : '') + '" placeholder="' + CFG.body.defaultBirthYear + '"></label>' +
+        '<label class="field"><span>Goal weight (kg)</span><input type="number" id="set-gw" value="' + (s.goalWeightKg != null ? s.goalWeightKg : '') + '" placeholder="' + CFG.body.defaultGoalWeightKg + '"></label>' +
+        '<div class="seg" id="set-sex">' +
+          '<button data-sex="male" class="' + ((s.sex || CFG.body.defaultSex) === 'male' ? 'on' : '') + '">Male</button>' +
+          '<button data-sex="female" class="' + (s.sex === 'female' ? 'on' : '') + '">Female</button>' +
+        '</div>' +
+        '<div class="divider"></div>' +
+        '<div class="tiny muted" style="margin-bottom:6px">Baseline machine scan — the anchor for every fat% estimate. Only written when you save it.</div>' +
+        '<label class="field"><span>Scan date</span><input type="date" id="set-bd" value="' + esc(s.baseline ? s.baseline.dateISO : CFG.body.baseline.dateISO) + '"></label>' +
+        '<label class="field"><span>Scan weight (kg)</span><input type="number" id="set-bw" value="' + (s.baseline ? s.baseline.weightKg : CFG.body.baseline.weightKg) + '"></label>' +
+        '<label class="field"><span>Scan body fat (%)</span><input type="number" id="set-bf" value="' + (s.baseline ? s.baseline.fatPct : CFG.body.baseline.fatPct) + '"></label>' +
+        '<button class="btn gold sm" id="set-bsave">Save baseline scan</button>' +
       '</div>' +
       '<div class="card"><h3>Motion</h3><div class="check' + (s.reducedMotion ? ' on' : '') + '" id="set-rm"><span class="box">' + (s.reducedMotion ? '✓' : '') + '</span><span class="txt">Reduce animations (save battery)</span></div></div>' +
       '<div class="card"><h3>Sacred location</h3>' +
@@ -3139,6 +3263,18 @@
     };
     appEl.querySelector('#set-h').addEventListener('change', function (e) { S.setSettings({ heightCm: e.target.value === '' ? null : +e.target.value }); });
     appEl.querySelector('#set-w').addEventListener('change', function (e) { S.setSettings({ currentWeightKg: e.target.value === '' ? null : +e.target.value }); });
+    // increment 13 — The Vessel context
+    appEl.querySelector('#set-by').addEventListener('change', function (e) { S.setSettings({ birthYear: e.target.value === '' ? null : +e.target.value }); });
+    appEl.querySelector('#set-gw').addEventListener('change', function (e) { S.setSettings({ goalWeightKg: e.target.value === '' ? null : +e.target.value }); });
+    appEl.querySelectorAll('#set-sex [data-sex]').forEach(function (b) {
+      b.onclick = function () { S.setSettings({ sex: b.getAttribute('data-sex') }); render(); };
+    });
+    appEl.querySelector('#set-bsave').onclick = function () {
+      var bd = appEl.querySelector('#set-bd').value, bw = appEl.querySelector('#set-bw').value, bf = appEl.querySelector('#set-bf').value;
+      if (!bd || bw === '' || bf === '') { toast('Fill date, weight and fat% first.'); return; }
+      S.setSettings({ baseline: { dateISO: bd, weightKg: +bw, fatPct: +bf } });
+      toast('Baseline scan saved — the estimate re-anchors to it.');
+    };
     // increment 4 — sacred location (bound like heightCm) + one-shot geolocation
     appEl.querySelector('#set-lat').addEventListener('change', function (e) { S.setSettings({ latitude: e.target.value === '' ? null : +e.target.value }); });
     appEl.querySelector('#set-lng').addEventListener('change', function (e) { S.setSettings({ longitude: e.target.value === '' ? null : +e.target.value }); });
@@ -3211,7 +3347,7 @@
   }
 
   /* =================== ROUTER =================== */
-  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals, mentor: screenMentor };
+  var SCREENS = { today: screenToday, log: screenLog, road: screenRoad, stats: screenStats, study: screenStudy, nutrition: screenNutrition, codex: screenCodex, settings: screenSettings, ascension: screenAscension, photos: screenPhotos, power: screenPower, signals: screenSignals, movement: screenMovement, rota: screenRota, oracle: screenOracle, sanctum: screenSanctum, goals: screenGoals, mentor: screenMentor, body: screenBody };
   var TABS = [
     { id: 'today', ic: '⚡', label: 'Today' },
     { id: 'log', ic: '📝', label: 'Log' },

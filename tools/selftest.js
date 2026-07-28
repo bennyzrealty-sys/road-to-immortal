@@ -13,7 +13,7 @@ global.localStorage = {
 };
 
 var root = path.join(__dirname, '..');
-['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js'].forEach(function (f) {
+['config.js', 'util.js', 'store.js', 'engine.js', 'photos.js', 'rota.js', 'sanctum.js', 'oracle.js', 'sync.js', 'goals.js', 'body.js'].forEach(function (f) {
   // eslint-disable-next-line no-eval
   eval(fs.readFileSync(path.join(root, f), 'utf8'));
 });
@@ -1088,6 +1088,71 @@ check('urgesInWindow counts only the meter window', E.urgesInWindow('2026-07-24'
 check('config: increment 12 tunables exist',
   (global.RTI_CONFIG.practice.fadeMinFalling >= 1) + '|' + (global.RTI_CONFIG.practice.preregMinDays >= 1) + '|' +
   (global.RTI_CONFIG.practice.sleepNudgeMeanBelow > 0), 'true|true|true');
+
+/* =================== INCREMENT 13 — THE VESSEL =================== */
+var BODY = global.RTI_BODY;
+
+// ewma: smooths, carries nulls forward, seeds on first value
+(function () {
+  var sm = U.ewma([100, null, 98], 0.25);
+  check('ewma seeds on first value', sm[0], 100);
+  check('ewma carries null forward', sm[1], 100);
+  near('ewma smooths toward new value', sm[2], 99.5, 0.01);
+})();
+
+// pure math: bmi, deurenberg, calibration offset
+S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' }); st = S.getSettings();
+near('bmi @ baseline (168cm)', BODY.bmi(100.3, 168), 35.54, 0.02);
+near('deurenberg @ baseline', BODY.deurenbergPct(35.54, 35, 'male'), 34.5, 0.15);
+near('fat offset calibrates to machine scan', BODY.fatOffset(st), -5.0, 0.2);
+(function () {
+  // estimate at the baseline weight must reproduce the machine reading
+  S.setSettings({ currentWeightKg: 100.3 });
+  var est = BODY.fatPctEstimate(S.getSettings(), '2026-05-08');
+  near('estimate == machine reading at baseline', est.fatPct, 29.5, 0.2);
+  S.setSettings({ currentWeightKg: null });
+})();
+
+// seeded descent 100.3 -> 94.15: rate, verdict, progress, ETA, physique
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  // weekly weigh-ins descending ~0.53kg/wk across 11 weeks (2026-05-11 .. 2026-07-27)
+  for (var i = 0; i <= 11; i++) {
+    var d = U.addDays('2026-05-11', i * 7);
+    S.patchLog(d, { weightKg: Math.round((100.3 - 0.5321 * i) * 100) / 100 });
+  }
+  var s2 = S.getSettings(), asOf = '2026-07-28';
+  var sum = BODY.summary(s2, asOf);
+  check('weight series includes baseline + logs', sum.series.length, 13);
+  near('descent rate ~ -0.53 kg/wk', BODY.rateKgPerWeek(s2, asOf), -0.53, 0.08);
+  check('rate verdict: on-pace inside 0.5-1%/wk', sum.rate.band, 'on-pace');
+  near('progress toward 80kg ~ 30%', sum.progressPct, 30, 3);
+  check('eta exists and lands in 2027', !!(sum.eta && sum.eta.dateISO.slice(0, 4) === '2027'), true);
+  check('physique gate present with a live date', !!(sum.physique && sum.physique.dateISO), true);
+  check('physique target below current weight', sum.physique.targetKg < sum.currentKg, true);
+  // the covenant: a new weigh-in MOVES the predicted date (live recompute)
+  var before = sum.physique.dateISO;
+  S.patchLog('2026-07-28', { weightKg: 93.2 });
+  var after = BODY.summary(S.getSettings(), asOf).physique.dateISO;
+  check('new weigh-in moves the physique date', before !== after, true);
+})();
+
+// weightKg survives the export -> wipe -> import round-trip
+(function () {
+  var bundle = S.exportBundle();
+  S.wipeAll();
+  var res = S.importBundle(bundle);
+  check('bundle with weightKg imports ok', res.ok, true);
+  check('weightKg survives round-trip', S.getLog('2026-07-28').weightKg, 93.2);
+})();
+
+// fresh-store safety: no logged weigh-ins -> summary stands on the baseline
+// scan alone (CFG default), no rate, no ETA, and never throws
+(function () {
+  S.wipeAll(); S.setSettings({ startDate: '2026-06-08', targetDate: '2027-10-20' });
+  var sum = BODY.summary(S.getSettings(), '2026-06-09');
+  check('fresh store: baseline-only, no error', !sum.error && sum.currentKg === 100.3 && sum.rate == null && sum.eta == null, true);
+})();
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
